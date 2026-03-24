@@ -1,15 +1,31 @@
 {
-  "name": "testmind",
+  "name": "@deltamx/testmind",
   "version": "0.1.0",
   "description": "Code-change-driven self-test advisor",
   "type": "module",
   "bin": {
     "testmind": "./dist/cli.js"
   },
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "build": "tsup",
     "dev": "tsx src/cli.ts",
-    "lint": "tsc --noEmit"
+    "lint": "tsc --noEmit",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "testing",
+    "code-review",
+    "self-test",
+    "llm",
+    "cli"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/deltamx-ai/testmind.git"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.39.0",
