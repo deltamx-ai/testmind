@@ -6,6 +6,7 @@ import { scanTestCoverage } from './stages/test-scanner.js'
 import { buildContext } from './stages/context-builder.js'
 import { analyzeLLM } from './stages/llm-analyzer.js'
 import { generateReport } from './reporter.js'
+import { resolveLLMProvider } from './llm/provider.js'
 
 interface PipelineOptions {
   cwd: string
@@ -53,9 +54,9 @@ export async function runPipeline(options: PipelineOptions): Promise<string> {
   const contextText = buildContext(ctx)
 
   // Stage 6: LLM analysis
-  const model = config.model ?? process.env.TESTMIND_MODEL ?? 'claude-sonnet-4-20250514'
-  log('6/6', `调用 LLM 分析 (${model})...`)
-  const llmResult = await analyzeLLM(contextText, model)
+  const provider = resolveLLMProvider(config)
+  log('6/6', `调用 LLM 分析 (${provider.displayName})...`)
+  const llmResult = await analyzeLLM(contextText, provider)
   log('6/6', `生成 ${llmResult.checklist.length} 条检查项`)
 
   // Stage 7: Generate report

@@ -12,6 +12,8 @@ program
   .version('0.1.0')
   .option('-b, --base <branch>', 'base branch to compare against')
   .option('--branch <branch>', 'target branch to analyze')
+  .option('-p, --provider <provider>', 'llm provider: auto | anthropic | copilot')
+  .option('-m, --model <model>', 'llm model id')
   .option('-r, --repo <path>', 'repository path', '.')
   .option('-o, --output <file>', 'output to file instead of stdout')
   .action(async (opts) => {
@@ -24,7 +26,12 @@ program
     }
 
     // Load config
-    const config = loadConfig(cwd)
+    const fileConfig = loadConfig(cwd)
+    const config = {
+      ...fileConfig,
+      provider: opts.provider ?? fileConfig.provider,
+      model: opts.model ?? fileConfig.model,
+    }
 
     // Determine branches
     const baseBranch = opts.base ?? config.baseBranch ?? process.env.TESTMIND_BASE_BRANCH ?? detectBaseBranch(cwd)

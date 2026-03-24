@@ -1,5 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk'
-import type { LLMOutput } from '../types.js'
+import type { LLMOutput, ResolvedLLMProvider } from '../types.js'
 
 const SYSTEM_PROMPT = `你是一个资深的代码审查专家和测试顾问。你的任务是分析代码变更，帮助开发者在提交测试前发现潜在问题。
 
@@ -45,20 +45,27 @@ const USER_PROMPT_PREFIX = `请分析以下代码变更，输出 JSON 格式的�
 
 export async function analyzeLLM(
   contextText: string,
-  model: string = 'claude-sonnet-4-20250514',
+  provider: ResolvedLLMProvider,
 ): Promise<LLMOutput> {
-  const apiKey = process.env.ANTHROPIC_API_KEY
-  if (!apiKey) {
-    throw new Error(
-      '未设置 ANTHROPIC_API_KEY 环境变量。\n' +
-      '请设置: export ANTHROPIC_API_KEY=your-key-here',
-    )
+  if (provider.provider === 'anthropic') {
+    return analyzeWithAnthropic(contextText, provider)
   }
 
-  const client = new Anthropic({ apiKey })
+  return analyzeWithCopilot(contextText, provider)
+}
+
+async function analyzeWithAnthropic(
+  contextText: string,
+  provider: ResolvedLLMProvider,
+): Promise<LLMOutput> {
+  if (!provider.apiKey) {
+    throw new Error('Anthropic provider 缺少 API Key')
+  }
+
+  const client = new Anthropic({ apiKey: provider.apiKey })
 
   const response = await client.messages.create({
-    model,
+    model: provider.model,
     max_tokens: 8192,
     system: SYSTEM_PROMPT,
     messages: [
@@ -72,6 +79,71 @@ export async function analyzeLLM(
     .join('')
 
   return parseLLMOutput(text)
+}
+
+async function analyzeWithCopilot(
+  contextText: string,
+  provider: ResolvedLLMProvider,
+): Promise<LLMOutput> {
+  if (!provider.token) {
+    throw new Error('Copilot provider 缺少访问 token')
+  }
+
+  const response = await fetch(`${provider.baseUrl ?? 'https://api.githubcopilot.com'}/chat/completions`, {
+    method: 'POST',
+    headers: {
+      'authorization': `Bearer ${provider.token}`,
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({
+      model: provider.model,
+      stream: false,
+      messages: [
+        { role: 'system', content: SYSTEM_PROMPT },
+        { role: 'user', content: USER_PROMPT_PREFIX + contextText },
+      ],
+    }),
+  })
+
+  if (!response.ok) {
+    const errorText = await response.text()
+    throw new Error(`Copilot 请求失败 (${response.status}): ${truncateError(errorText)}`)
+  }
+
+  const data = await response.json() as CopilotChatCompletionResponse
+  const text = data.choices
+    ?.map(choice => extractCopilotText(choice.message?.content))
+    .join('')
+    .trim()
+
+  if (!text) {
+    throw new Error('Copilot 返回了空响应')
+  }
+
+  return parseLLMOutput(text)
+}
+
+interface CopilotChatCompletionResponse {
+  choices?: Array<{
+    message?: {
+      content?: string | Array<{ type?: string; text?: string }>
+    }
+  }>
+}
+
+function extractCopilotText(content: string | Array<{ type?: string; text?: string }> | undefined): string {
+  if (typeof content === 'string') {
+    return content
+  }
+
+  if (Array.isArray(content)) {
+    return content
+      .filter(item => item.type === 'text' && typeof item.text === 'string')
+      .map(item => item.text)
+      .join('')
+  }
+
+  return ''
 }
 
 function parseLLMOutput(text: string): LLMOutput {
@@ -107,4 +179,8 @@ function validateOutput(parsed: Record<string, unknown>): LLMOutput {
     testSuggestions: Array.isArray(parsed.testSuggestions) ? parsed.testSuggestions : [],
     warnings: Array.isArray(parsed.warnings) ? parsed.warnings : [],
   }
+}
+
+function truncateError(text: string): string {
+  return text.length > 400 ? `${text.slice(0, 400)}...` : text
 }

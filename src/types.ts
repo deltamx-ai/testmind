@@ -112,6 +112,18 @@ export interface LLMOutput {
   warnings: string[]
 }
 
+export type LLMProviderKind = 'anthropic' | 'copilot'
+
+export interface ResolvedLLMProvider {
+  provider: LLMProviderKind
+  model: string
+  displayName: string
+  apiKey?: string
+  baseUrl?: string
+  token?: string
+  authSource?: 'env' | 'config' | 'command' | 'copilot-auth'
+}
+
 // ---- Pipeline Context ----
 
 export interface AnalysisContext {
@@ -125,9 +137,15 @@ export interface AnalysisContext {
 
 export interface TestMindConfig {
   baseBranch?: string
+  provider?: LLMProviderKind | 'auto'
   model?: string
   maxDiffLines?: number
   historyDays?: number
   language?: string
   excludePatterns?: string[]
+  anthropicApiKey?: string
+  copilotToken?: string
+  copilotBaseUrl?: string
+  copilotTokenCommand?: string
+  copilotPython?: string
 }
