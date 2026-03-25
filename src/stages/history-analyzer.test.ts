@@ -4,16 +4,15 @@ vi.mock('../utils.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../utils.js')>()
   return {
     ...actual,
-    exec: vi.fn(),
-    execLines: vi.fn(),
+    gitLines: vi.fn(),
   }
 })
 
 import { analyzeHistory } from './history-analyzer.js'
-import { exec, execLines } from '../utils.js'
+import { gitLines } from '../utils.js'
 import type { ChangedFile } from '../types.js'
 
-const mockedExecLines = vi.mocked(execLines)
+const mockedGitLines = vi.mocked(gitLines)
 
 function makeFile(path: string, status: ChangedFile['status'] = 'modified'): ChangedFile {
   return {
@@ -29,10 +28,10 @@ function makeFile(path: string, status: ChangedFile['status'] = 'modified'): Cha
 
 describe('analyzeHistory', () => {
   it('skips newly added files', async () => {
-    mockedExecLines.mockReturnValue([])
+    mockedGitLines.mockReturnValue([])
     const result = await analyzeHistory([makeFile('src/new.ts', 'added')], '/repo')
     expect(result.hotspots).toHaveLength(0)
-    expect(mockedExecLines).not.toHaveBeenCalled()
+    expect(mockedGitLines).not.toHaveBeenCalled()
   })
 
   it('classifies high risk correctly', async () => {
@@ -41,7 +40,7 @@ describe('analyzeHistory', () => {
       ...Array.from({ length: 7 }, (_, i) => `hash${i}|feat: change ${i}|2026-01-01`),
       ...Array.from({ length: 4 }, (_, i) => `fixhash${i}|fix: bug ${i}|2026-01-02`),
     ]
-    mockedExecLines.mockReturnValue(lines)
+    mockedGitLines.mockReturnValue(lines)
     const result = await analyzeHistory([makeFile('src/auth.ts')], '/repo')
     expect(result.hotspots).toHaveLength(1)
     expect(result.hotspots[0].riskLevel).toBe('high')
@@ -55,19 +54,19 @@ describe('analyzeHistory', () => {
       'fixhash0|fix: bug|2026-01-02',
       'fixhash1|fix: another bug|2026-01-02',
     ]
-    mockedExecLines.mockReturnValue(lines)
+    mockedGitLines.mockReturnValue(lines)
     const result = await analyzeHistory([makeFile('src/svc.ts')], '/repo')
     expect(result.hotspots[0].riskLevel).toBe('medium')
   })
 
   it('classifies low risk correctly', async () => {
-    mockedExecLines.mockReturnValue(['hash0|feat: init|2026-01-01'])
+    mockedGitLines.mockReturnValue(['hash0|feat: init|2026-01-01'])
     const result = await analyzeHistory([makeFile('src/util.ts')], '/repo')
     expect(result.hotspots[0].riskLevel).toBe('low')
   })
 
   it('collects fix commits', async () => {
-    mockedExecLines.mockReturnValue([
+    mockedGitLines.mockReturnValue([
       'abc123|fix: crash on null input|2026-02-01',
     ])
     const result = await analyzeHistory([makeFile('src/parser.ts')], '/repo')
@@ -77,13 +76,13 @@ describe('analyzeHistory', () => {
   })
 
   it('handles git log failure gracefully', async () => {
-    mockedExecLines.mockImplementation(() => { throw new Error('git error') })
+    mockedGitLines.mockImplementation(() => { throw new Error('git error') })
     const result = await analyzeHistory([makeFile('src/broken.ts')], '/repo')
     expect(result.hotspots).toHaveLength(0)
   })
 
   it('sorts by risk then fixCount', async () => {
-    mockedExecLines
+    mockedGitLines
       .mockReturnValueOnce(['h1|feat: a|2026-01-01']) // low risk
       .mockReturnValueOnce([
         ...Array.from({ length: 12 }, (_, i) => `h${i}|fix: bug ${i}|2026-01-01`),

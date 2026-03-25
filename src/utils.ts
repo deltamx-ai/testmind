@@ -1,20 +1,36 @@
-import { execSync } from 'node:child_process'
+import { execFileSync } from 'node:child_process'
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { TestMindConfig } from './types.js'
 
-export function exec(cmd: string, cwd: string): string {
-  return execSync(cmd, { cwd, encoding: 'utf-8', maxBuffer: 10 * 1024 * 1024 }).trim()
+function execFile(command: string, args: string[], cwd: string): string {
+  return execFileSync(command, args, {
+    cwd,
+    encoding: 'utf-8',
+    maxBuffer: 10 * 1024 * 1024,
+  }).trim()
 }
 
-export function execLines(cmd: string, cwd: string): string[] {
-  const output = exec(cmd, cwd)
+export function exec(command: string, args: string[], cwd: string): string {
+  return execFile(command, args, cwd)
+}
+
+export function execLines(command: string, args: string[], cwd: string): string[] {
+  const output = exec(command, args, cwd)
   return output ? output.split('\n').filter(Boolean) : []
+}
+
+export function git(args: string[], cwd: string): string {
+  return exec('git', args, cwd)
+}
+
+export function gitLines(args: string[], cwd: string): string[] {
+  return execLines('git', args, cwd)
 }
 
 export function isGitRepo(dir: string): boolean {
   try {
-    exec('git rev-parse --is-inside-work-tree', dir)
+    git(['rev-parse', '--is-inside-work-tree'], dir)
     return true
   } catch {
     return false
@@ -25,7 +41,7 @@ export function detectBaseBranch(cwd: string): string {
   const candidates = ['main', 'master', 'develop']
   for (const branch of candidates) {
     try {
-      exec(`git rev-parse --verify ${branch}`, cwd)
+      git(['rev-parse', '--verify', branch], cwd)
       return branch
     } catch {
       continue
@@ -33,7 +49,7 @@ export function detectBaseBranch(cwd: string): string {
   }
   // fallback: first remote HEAD
   try {
-    const ref = exec('git symbolic-ref refs/remotes/origin/HEAD', cwd)
+    const ref = git(['symbolic-ref', 'refs/remotes/origin/HEAD'], cwd)
     return ref.replace('refs/remotes/origin/', '')
   } catch {
     return 'main'
@@ -42,11 +58,11 @@ export function detectBaseBranch(cwd: string): string {
 
 export function branchExists(cwd: string, branch: string): boolean {
   try {
-    exec(`git rev-parse --verify ${branch}`, cwd)
+    git(['rev-parse', '--verify', branch], cwd)
     return true
   } catch {
     try {
-      exec(`git rev-parse --verify origin/${branch}`, cwd)
+      git(['rev-parse', '--verify', `origin/${branch}`], cwd)
       return true
     } catch {
       return false
@@ -55,7 +71,7 @@ export function branchExists(cwd: string, branch: string): boolean {
 }
 
 export function getCurrentBranch(cwd: string): string {
-  return exec('git rev-parse --abbrev-ref HEAD', cwd)
+  return git(['rev-parse', '--abbrev-ref', 'HEAD'], cwd)
 }
 
 export function getLanguageFromPath(filePath: string): string {

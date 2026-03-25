@@ -2,7 +2,7 @@ import { basename } from 'node:path'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { ChangedFile, CoverageItem, TestCoverage } from '../types.js'
-import { execLines } from '../utils.js'
+import { gitLines } from '../utils.js'
 
 function toSearchVariants(stem: string): string[] {
   const variants = [stem.toLowerCase()]
@@ -34,10 +34,7 @@ export async function scanTestCoverage(
   // Get all test files in repo
   let testFiles: string[]
   try {
-    testFiles = execLines(
-      'git ls-files "*.test.*" "*.spec.*" "*/__tests__/*"',
-      cwd,
-    )
+    testFiles = gitLines(['ls-files', '*.test.*', '*.spec.*', '*/__tests__/*'], cwd)
   } catch {
     testFiles = []
   }

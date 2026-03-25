@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs'
-import { basename, dirname, join, relative } from 'node:path'
+import { basename, dirname, join } from 'node:path'
 import type { ChangedFile, DependencyAnalysis, ImpactedFile } from '../types.js'
-import { execLines } from '../utils.js'
+import { gitLines } from '../utils.js'
 
 const ENTRY_PATTERNS = [
   /^(src\/)?pages\//,
@@ -56,18 +56,9 @@ export async function traceDependencies(
   }
 
   // Get all source files in the repo
-  const extensions = '{ts,tsx,js,jsx,vue,svelte,py,go,java,kt}'
   let allFiles: string[]
   try {
-    const excludeArgs = [
-      '--not-path', '*/node_modules/*',
-      '--not-path', '*/.next/*',
-      '--not-path', '*/dist/*',
-      '--not-path', '*/build/*',
-      ...excludePatterns.flatMap(p => ['--not-path', `*/${p}`]),
-    ]
-    // Use git ls-files for speed
-    allFiles = execLines(`git ls-files "*.ts" "*.tsx" "*.js" "*.jsx" "*.vue" "*.svelte"`, cwd)
+    allFiles = gitLines(['ls-files', '*.ts', '*.tsx', '*.js', '*.jsx', '*.vue', '*.svelte'], cwd)
   } catch {
     allFiles = []
   }

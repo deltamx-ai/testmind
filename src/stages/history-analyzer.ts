@@ -1,5 +1,5 @@
 import type { ChangedFile, FixCommit, HistoryAnalysis, Hotspot } from '../types.js'
-import { exec, execLines } from '../utils.js'
+import { gitLines } from '../utils.js'
 
 const FIX_KEYWORDS = /\b(fix|bug|hotfix|patch|resolve|revert|regression|crash|broken|issue)\b/i
 
@@ -17,10 +17,7 @@ export async function analyzeHistory(
 
     try {
       // Count commits touching this file in the last N days
-      const logLines = execLines(
-        `git log --since="${historyDays} days ago" --format="%H|%s|%ai" -- "${file.path}"`,
-        cwd,
-      )
+      const logLines = gitLines(['log', `--since=${historyDays} days ago`, '--format=%H|%s|%ai', '--', file.path], cwd)
 
       const commitCount = logLines.length
       let fixCount = 0

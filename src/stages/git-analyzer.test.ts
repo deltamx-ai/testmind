@@ -4,30 +4,30 @@ vi.mock('../utils.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../utils.js')>()
   return {
     ...actual,
-    exec: vi.fn(),
-    execLines: vi.fn(),
+    git: vi.fn(),
+    gitLines: vi.fn(),
     getLanguageFromPath: actual.getLanguageFromPath,
     truncateDiff: actual.truncateDiff,
   }
 })
 
 import { analyzeGit } from './git-analyzer.js'
-import { exec, execLines } from '../utils.js'
+import { git, gitLines } from '../utils.js'
 
-const mockedExec = vi.mocked(exec)
-const mockedExecLines = vi.mocked(execLines)
+const mockedGit = vi.mocked(git)
+const mockedGitLines = vi.mocked(gitLines)
 
 describe('analyzeGit', () => {
   it('returns correct structure with changed files', async () => {
-    mockedExec.mockImplementation((cmd) => {
-      if (cmd.includes('merge-base')) return 'abc123'
-      if (cmd.includes('git diff') && cmd.includes('-- "')) return '+added\n-removed'
+    mockedGit.mockImplementation((args) => {
+      if (args[0] === 'merge-base') return 'abc123'
+      if (args[0] === 'diff' && args.includes('--')) return '+added\n-removed'
       return ''
     })
-    mockedExecLines.mockImplementation((cmd) => {
-      if (cmd.includes('--name-status')) return ['M\tsrc/foo.ts']
-      if (cmd.includes('--numstat')) return ['10\t2\tsrc/foo.ts']
-      if (cmd.includes('--format')) return ['def456|feat: add foo|2026-01-01|dev']
+    mockedGitLines.mockImplementation((args) => {
+      if (args.includes('--name-status')) return ['M\tsrc/foo.ts']
+      if (args.includes('--numstat')) return ['10\t2\tsrc/foo.ts']
+      if (args.some(arg => arg.startsWith('--format='))) return ['def456|feat: add foo|2026-01-01|dev']
       return []
     })
 
@@ -46,15 +46,15 @@ describe('analyzeGit', () => {
   })
 
   it('handles added files', async () => {
-    mockedExec.mockImplementation((cmd) => {
-      if (cmd.includes('merge-base')) return 'abc123'
-      if (cmd.includes('git diff') && cmd.includes('-- "')) return '+new file content'
+    mockedGit.mockImplementation((args) => {
+      if (args[0] === 'merge-base') return 'abc123'
+      if (args[0] === 'diff' && args.includes('--')) return '+new file content'
       return ''
     })
-    mockedExecLines.mockImplementation((cmd) => {
-      if (cmd.includes('--name-status')) return ['A\tsrc/new.ts']
-      if (cmd.includes('--numstat')) return ['20\t0\tsrc/new.ts']
-      if (cmd.includes('--format')) return []
+    mockedGitLines.mockImplementation((args) => {
+      if (args.includes('--name-status')) return ['A\tsrc/new.ts']
+      if (args.includes('--numstat')) return ['20\t0\tsrc/new.ts']
+      if (args.some(arg => arg.startsWith('--format='))) return []
       return []
     })
 
@@ -64,15 +64,15 @@ describe('analyzeGit', () => {
   })
 
   it('handles renamed files', async () => {
-    mockedExec.mockImplementation((cmd) => {
-      if (cmd.includes('merge-base')) return 'abc123'
-      if (cmd.includes('git diff') && cmd.includes('-- "')) return 'renamed content'
+    mockedGit.mockImplementation((args) => {
+      if (args[0] === 'merge-base') return 'abc123'
+      if (args[0] === 'diff' && args.includes('--')) return 'renamed content'
       return ''
     })
-    mockedExecLines.mockImplementation((cmd) => {
-      if (cmd.includes('--name-status')) return ['R100\tsrc/old.ts\tsrc/new.ts']
-      if (cmd.includes('--numstat')) return ['0\t0\tsrc/new.ts']
-      if (cmd.includes('--format')) return []
+    mockedGitLines.mockImplementation((args) => {
+      if (args.includes('--name-status')) return ['R100\tsrc/old.ts\tsrc/new.ts']
+      if (args.includes('--numstat')) return ['0\t0\tsrc/new.ts']
+      if (args.some(arg => arg.startsWith('--format='))) return []
       return []
     })
 
@@ -82,15 +82,15 @@ describe('analyzeGit', () => {
   })
 
   it('falls back to baseBranch if merge-base fails', async () => {
-    mockedExec.mockImplementation((cmd) => {
-      if (cmd.includes('merge-base')) throw new Error('no merge base')
-      if (cmd.includes('git diff') && cmd.includes('-- "')) return ''
+    mockedGit.mockImplementation((args) => {
+      if (args[0] === 'merge-base') throw new Error('no merge base')
+      if (args[0] === 'diff' && args.includes('--')) return ''
       return ''
     })
-    mockedExecLines.mockImplementation((cmd) => {
-      if (cmd.includes('--name-status')) return ['M\tsrc/foo.ts']
-      if (cmd.includes('--numstat')) return ['1\t1\tsrc/foo.ts']
-      if (cmd.includes('--format')) return []
+    mockedGitLines.mockImplementation((args) => {
+      if (args.includes('--name-status')) return ['M\tsrc/foo.ts']
+      if (args.includes('--numstat')) return ['1\t1\tsrc/foo.ts']
+      if (args.some(arg => arg.startsWith('--format='))) return []
       return []
     })
 
@@ -100,8 +100,8 @@ describe('analyzeGit', () => {
   })
 
   it('returns empty when no changes', async () => {
-    mockedExec.mockReturnValue('abc123')
-    mockedExecLines.mockReturnValue([])
+    mockedGit.mockReturnValue('abc123')
+    mockedGitLines.mockReturnValue([])
 
     const result = await analyzeGit('/repo', 'main', 'feat/empty')
     expect(result.changedFiles).toHaveLength(0)
@@ -109,15 +109,15 @@ describe('analyzeGit', () => {
   })
 
   it('categorizes test files correctly', async () => {
-    mockedExec.mockImplementation((cmd) => {
-      if (cmd.includes('merge-base')) return 'abc123'
-      if (cmd.includes('git diff') && cmd.includes('-- "')) return ''
+    mockedGit.mockImplementation((args) => {
+      if (args[0] === 'merge-base') return 'abc123'
+      if (args[0] === 'diff' && args.includes('--')) return ''
       return ''
     })
-    mockedExecLines.mockImplementation((cmd) => {
-      if (cmd.includes('--name-status')) return ['M\tsrc/__tests__/auth.test.ts']
-      if (cmd.includes('--numstat')) return ['5\t2\tsrc/__tests__/auth.test.ts']
-      if (cmd.includes('--format')) return []
+    mockedGitLines.mockImplementation((args) => {
+      if (args.includes('--name-status')) return ['M\tsrc/__tests__/auth.test.ts']
+      if (args.includes('--numstat')) return ['5\t2\tsrc/__tests__/auth.test.ts']
+      if (args.some(arg => arg.startsWith('--format='))) return []
       return []
     })
 

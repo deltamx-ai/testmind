@@ -1,5 +1,5 @@
 import type { ChangedFile, CommitInfo, FileCategory, GitAnalysis } from '../types.js'
-import { exec, execLines, getLanguageFromPath, truncateDiff } from '../utils.js'
+import { getLanguageFromPath, git, gitLines, truncateDiff } from '../utils.js'
 
 const DEFAULT_MAX_DIFF_LINES_PER_FILE = 200
 const DEFAULT_MAX_TOTAL_DIFF_LINES = 3000
@@ -46,21 +46,15 @@ export async function analyzeGit(
   // Get merge base for accurate diff
   let mergeBase: string
   try {
-    mergeBase = exec(`git merge-base ${baseBranch} ${headBranch}`, cwd)
+    mergeBase = git(['merge-base', baseBranch, headBranch], cwd)
   } catch {
     mergeBase = baseBranch
   }
 
   // Get changed files with stats
-  const nameStatusLines = execLines(
-    `git diff --name-status ${mergeBase}...${headBranch}`,
-    cwd,
-  )
+  const nameStatusLines = gitLines(['diff', '--name-status', `${mergeBase}...${headBranch}`], cwd)
 
-  const numstatLines = execLines(
-    `git diff --numstat ${mergeBase}...${headBranch}`,
-    cwd,
-  )
+  const numstatLines = gitLines(['diff', '--numstat', `${mergeBase}...${headBranch}`], cwd)
 
   // Build numstat map
   const numstatMap = new Map<string, { additions: number; deletions: number }>()
@@ -87,7 +81,7 @@ export async function analyzeGit(
 
     let diff = ''
     try {
-      diff = exec(`git diff ${mergeBase}...${headBranch} -- "${filePath}"`, cwd)
+      diff = git(['diff', `${mergeBase}...${headBranch}`, '--', filePath], cwd)
       diff = truncateDiff(diff, MAX_DIFF_LINES_PER_FILE)
     } catch {
       diff = '(unable to retrieve diff)'
@@ -115,10 +109,7 @@ export async function analyzeGit(
   }
 
   // Get commits
-  const commitLines = execLines(
-    `git log --format="%H|%s|%ai|%an" ${mergeBase}...${headBranch}`,
-    cwd,
-  )
+  const commitLines = gitLines(['log', '--format=%H|%s|%ai|%an', `${mergeBase}...${headBranch}`], cwd)
   const commits: CommitInfo[] = commitLines.map(line => {
     const [hash, message, date, author] = line.split('|')
     return { hash, message, date, author }

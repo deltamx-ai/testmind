@@ -13,16 +13,16 @@ vi.mock('../utils.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../utils.js')>()
   return {
     ...actual,
-    execLines: vi.fn(),
+    gitLines: vi.fn(),
   }
 })
 
 import { traceDependencies } from './dependency-tracer.js'
 import { readFileSync } from 'node:fs'
-import { execLines } from '../utils.js'
+import { gitLines } from '../utils.js'
 import type { ChangedFile } from '../types.js'
 
-const mockedExecLines = vi.mocked(execLines)
+const mockedGitLines = vi.mocked(gitLines)
 const mockedReadFileSync = vi.mocked(readFileSync)
 
 function makeFile(path: string): ChangedFile {
@@ -46,7 +46,7 @@ describe('traceDependencies', () => {
   })
 
   it('finds files that import a changed file', async () => {
-    mockedExecLines.mockReturnValue(['src/utils.ts', 'src/consumer.ts'])
+    mockedGitLines.mockReturnValue(['src/utils.ts', 'src/consumer.ts'])
     mockedReadFileSync.mockImplementation((path) => {
       if (String(path).includes('consumer.ts')) return 'import { foo } from "./utils"'
       return 'export const foo = 1'
@@ -58,14 +58,14 @@ describe('traceDependencies', () => {
   })
 
   it('identifies entry points among changed files', async () => {
-    mockedExecLines.mockReturnValue([])
+    mockedGitLines.mockReturnValue([])
     const entryFile = makeFile('src/pages/index.ts')
     const result = await traceDependencies([entryFile], '/repo')
     expect(result.entryPoints).toContain('src/pages/index.ts')
   })
 
   it('identifies entry points among impacted files', async () => {
-    mockedExecLines.mockReturnValue(['src/pages/home.tsx'])
+    mockedGitLines.mockReturnValue(['src/pages/home.tsx'])
     mockedReadFileSync.mockReturnValue('import { util } from "../lib"')
 
     const result = await traceDependencies([makeFile('src/lib.ts')], '/repo')
@@ -73,7 +73,7 @@ describe('traceDependencies', () => {
   })
 
   it('marks shared modules with >2 importers', async () => {
-    mockedExecLines.mockReturnValue(['src/a.ts', 'src/b.ts', 'src/c.ts'])
+    mockedGitLines.mockReturnValue(['src/a.ts', 'src/b.ts', 'src/c.ts'])
     mockedReadFileSync.mockReturnValue('import { x } from "./shared"')
 
     const result = await traceDependencies([makeFile('src/shared.ts')], '/repo')
@@ -81,7 +81,7 @@ describe('traceDependencies', () => {
   })
 
   it('handles git ls-files failure', async () => {
-    mockedExecLines.mockImplementation(() => { throw new Error('git error') })
+    mockedGitLines.mockImplementation(() => { throw new Error('git error') })
     const result = await traceDependencies([makeFile('src/foo.ts')], '/repo')
     // Should still check entryPoints for changed files
     expect(result.impactedFiles).toEqual([])
@@ -89,7 +89,7 @@ describe('traceDependencies', () => {
 
   it('caps impacted files at 30', async () => {
     const files = Array.from({ length: 40 }, (_, i) => `src/file${i}.ts`)
-    mockedExecLines.mockReturnValue(files)
+    mockedGitLines.mockReturnValue(files)
     mockedReadFileSync.mockReturnValue('import { x } from "./changed"')
 
     const result = await traceDependencies([makeFile('src/changed.ts')], '/repo')
