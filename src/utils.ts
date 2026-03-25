@@ -40,6 +40,20 @@ export function detectBaseBranch(cwd: string): string {
   }
 }
 
+export function branchExists(cwd: string, branch: string): boolean {
+  try {
+    exec(`git rev-parse --verify ${branch}`, cwd)
+    return true
+  } catch {
+    try {
+      exec(`git rev-parse --verify origin/${branch}`, cwd)
+      return true
+    } catch {
+      return false
+    }
+  }
+}
+
 export function getCurrentBranch(cwd: string): string {
   return exec('git rev-parse --abbrev-ref HEAD', cwd)
 }

@@ -4,7 +4,7 @@
 
 一个 CLI 工具。开发者提交 PR 前运行一次，自动分析代码变更，输出结构化的自测检查清单。
 
-不依赖 Jira，不需要数据库，不需要 Web UI。唯一的输入是一个 git 分支。
+不依赖 Jira，不需要数据库，不需要 Web UI。唯一的输入是两个待比较的 git 分支。
 
 ## 核心假设
 
@@ -14,14 +14,14 @@
 ## 使用方式
 
 ```bash
-# 基本用法：分析当前分支相对于 main 的变更
+# 基本用法：分析当前分支相对于默认基准分支的变更
 testmind
 
-# 指定基准分支
-testmind --base develop
+# 显式指定两个分支
+testmind --base develop --head feature/login-refactor
 
-# 指定目标分支
-testmind --branch feature/login-refactor
+# 兼容旧参数名
+testmind --base develop --branch feature/login-refactor
 
 # 指定仓库路径
 testmind --repo /path/to/project
@@ -32,9 +32,11 @@ testmind --output checklist.md
 
 默认行为：
 - `--base`: 自动检测主分支 (main/master/develop)
-- `--branch`: 当前分支
+- `--head` / `--branch`: 当前分支
 - `--repo`: 当前工作目录
 - 输出到 stdout
+
+推荐在 CI 或跨分支分析时显式传入 `--base` 和 `--head`，这样可以支持任意两个分支对比，而不依赖当前 checkout 分支。
 
 ## 分析管道
 
@@ -386,6 +388,7 @@ src/
 ```json
 {
   "baseBranch": "develop",
+  "headBranch": "feature/login-refactor",
   "model": "claude-sonnet-4-20250514",
   "maxDiffLines": 3000,
   "historyDays": 90,
@@ -401,6 +404,7 @@ src/
 - `ANTHROPIC_API_KEY`: Claude API 密钥（必须）
 - `TESTMIND_MODEL`: 模型覆盖
 - `TESTMIND_BASE_BRANCH`: 默认基准分支覆盖
+- `TESTMIND_HEAD_BRANCH`: 默认目标分支覆盖
 
 ### 错误处理
 
