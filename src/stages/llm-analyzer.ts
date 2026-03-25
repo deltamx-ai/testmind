@@ -156,18 +156,32 @@ function parseLLMOutput(text: string): LLMOutput {
     jsonStr = jsonMatch[1].trim()
   }
 
+  // Try direct parse
   try {
     const parsed = JSON.parse(jsonStr)
     return validateOutput(parsed)
   } catch {
-    // Fallback: return raw text as a single warning
-    return {
-      summary: '无法解析 LLM 输出，请查看原始结果',
-      riskLevel: 'medium',
-      checklist: [],
-      testSuggestions: [],
-      warnings: [`LLM 输出解析失败。原始输出:\n\n${text}`],
+    // noop, try other strategies
+  }
+
+  // Try to find JSON object in mixed text (LLM sometimes adds text before/after JSON)
+  const jsonObjMatch = text.match(/\{[\s\S]*"summary"[\s\S]*"checklist"[\s\S]*\}/)
+  if (jsonObjMatch) {
+    try {
+      const parsed = JSON.parse(jsonObjMatch[0])
+      return validateOutput(parsed)
+    } catch {
+      // noop
     }
+  }
+
+  // Fallback: return raw text as a single warning
+  return {
+    summary: '无法解析 LLM 输出，请查看原始结果',
+    riskLevel: 'medium',
+    checklist: [],
+    testSuggestions: [],
+    warnings: [`LLM 输出解析失败。原始输出:\n\n${text}`],
   }
 }
 

@@ -1,8 +1,8 @@
 import type { ChangedFile, CommitInfo, FileCategory, GitAnalysis } from '../types.js'
 import { exec, execLines, getLanguageFromPath, truncateDiff } from '../utils.js'
 
-const MAX_DIFF_LINES_PER_FILE = 200
-const MAX_TOTAL_DIFF_LINES = 3000
+const DEFAULT_MAX_DIFF_LINES_PER_FILE = 200
+const DEFAULT_MAX_TOTAL_DIFF_LINES = 3000
 
 function categorizeFile(path: string): FileCategory {
   const lower = path.toLowerCase()
@@ -35,7 +35,14 @@ function parseStatus(letter: string): ChangedFile['status'] {
   }
 }
 
-export async function analyzeGit(cwd: string, baseBranch: string, headBranch: string): Promise<GitAnalysis> {
+export async function analyzeGit(
+  cwd: string,
+  baseBranch: string,
+  headBranch: string,
+  options?: { maxDiffLinesPerFile?: number; maxDiffLines?: number },
+): Promise<GitAnalysis> {
+  const MAX_DIFF_LINES_PER_FILE = options?.maxDiffLinesPerFile ?? DEFAULT_MAX_DIFF_LINES_PER_FILE
+  const MAX_TOTAL_DIFF_LINES = options?.maxDiffLines ?? DEFAULT_MAX_TOTAL_DIFF_LINES
   // Get merge base for accurate diff
   let mergeBase: string
   try {

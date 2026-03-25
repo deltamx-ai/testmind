@@ -131,15 +131,20 @@ export interface AnalysisContext {
   dependencies: DependencyAnalysis
   history: HistoryAnalysis
   testCoverage: TestCoverage
+  stageWarnings: string[]
 }
 
 // ---- Config ----
 
 export interface TestMindConfig {
   baseBranch?: string
+  headBranch?: string
   provider?: LLMProviderKind | 'auto'
   model?: string
   maxDiffLines?: number
+  maxDiffLinesPerFile?: number
+  maxImpactedFiles?: number
+  maxContextChars?: number
   historyDays?: number
   language?: string
   excludePatterns?: string[]
@@ -148,4 +153,6 @@ export interface TestMindConfig {
   copilotBaseUrl?: string
   copilotTokenCommand?: string
   copilotPython?: string
+  verbose?: boolean
+  dryRun?: boolean
 }

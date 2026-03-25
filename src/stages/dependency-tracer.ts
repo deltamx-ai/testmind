@@ -48,6 +48,7 @@ export async function traceDependencies(
   changedFiles: ChangedFile[],
   cwd: string,
   excludePatterns: string[] = [],
+  maxImpactedFiles: number = 30,
 ): Promise<DependencyAnalysis> {
   const sourceFiles = changedFiles.filter(f => f.category === 'source')
   if (sourceFiles.length === 0) {
@@ -128,7 +129,7 @@ export async function traceDependencies(
     .map(([path]) => path)
 
   return {
-    impactedFiles: [...impactedMap.values()].slice(0, 30), // cap at 30
+    impactedFiles: [...impactedMap.values()].slice(0, maxImpactedFiles),
     sharedModules,
     entryPoints: [...entryPoints],
   }

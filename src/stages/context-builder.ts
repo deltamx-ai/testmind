@@ -1,8 +1,9 @@
 import type { AnalysisContext } from '../types.js'
 
-const MAX_CONTEXT_CHARS = 80_000 // ~20K tokens
+const DEFAULT_MAX_CONTEXT_CHARS = 80_000 // ~20K tokens
 
-export function buildContext(ctx: AnalysisContext): string {
+export function buildContext(ctx: AnalysisContext, maxContextChars?: number): string {
+  const MAX_CONTEXT_CHARS = maxContextChars ?? DEFAULT_MAX_CONTEXT_CHARS
   const sections: string[] = []
   let totalChars = 0
 

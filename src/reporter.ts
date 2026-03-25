@@ -100,6 +100,18 @@ export function generateReport(ctx: AnalysisContext, llmResult: LLMOutput): stri
     lines.push('')
   }
 
+  // Stage warnings
+  if (ctx.stageWarnings && ctx.stageWarnings.length > 0) {
+    lines.push('## 数据完整性警告')
+    lines.push('')
+    lines.push('> 以下分析阶段出现问题，报告数据可能不完整：')
+    lines.push('')
+    for (const w of ctx.stageWarnings) {
+      lines.push(`- ${w}`)
+    }
+    lines.push('')
+  }
+
   // Warnings
   if (llmResult.warnings.length > 0) {
     lines.push('## 注意事项')

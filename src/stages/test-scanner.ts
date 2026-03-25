@@ -1,4 +1,6 @@
 import { basename } from 'node:path'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import type { ChangedFile, CoverageItem, TestCoverage } from '../types.js'
 import { execLines } from '../utils.js'
 
@@ -60,6 +62,28 @@ export async function scanTestCoverage(
           matchedTests.push(testFiles[i])
           allRelatedTests.add(testFiles[i])
           break
+        }
+      }
+    }
+
+    // Semantic matching: check if any test file imports this source file
+    if (matchedTests.length === 0) {
+      for (const testFile of testFiles) {
+        if (matchedTests.includes(testFile)) continue
+        try {
+          const content = readFileSync(join(cwd, testFile), 'utf-8')
+          const sourceWithoutExt = source.path.replace(/\.[^.]+$/, '')
+          const sourceStem = getFileStem(source.path)
+          if (
+            content.includes(sourceWithoutExt) ||
+            content.includes(`./${sourceStem}`) ||
+            content.includes(`../${sourceStem}`)
+          ) {
+            matchedTests.push(testFile)
+            allRelatedTests.add(testFile)
+          }
+        } catch {
+          // File read error, skip
         }
       }
     }

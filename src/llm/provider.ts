@@ -9,38 +9,24 @@ export function resolveLLMProvider(config: TestMindConfig): ResolvedLLMProvider 
   const requestedProvider = getRequestedProvider(config)
   const requestedModel = getRequestedModel(config)
 
+  // Step 1: If provider is explicitly set, resolve it directly
   if (requestedProvider === 'anthropic') {
     return resolveAnthropicProvider(config, requestedModel)
   }
-
   if (requestedProvider === 'copilot') {
-    const provider = resolveCopilotProvider(config, true, requestedModel)
-    if (provider) {
-      return provider
-    }
-
-    throw new Error(
-      '已指定 provider=copilot，但未获取到 Copilot token。\n' +
-      '请设置 TESTMIND_COPILOT_TOKEN，或安装 copilot-auth 后重试。',
-    )
+    return resolveCopilotProviderOrThrow(config, requestedModel)
   }
 
+  // Step 2: Infer from model name
   const inferredProvider = inferProviderFromModel(requestedModel)
   if (inferredProvider === 'anthropic') {
     return resolveAnthropicProvider(config, requestedModel)
   }
   if (inferredProvider === 'copilot') {
-    const provider = resolveCopilotProvider(config, true, requestedModel)
-    if (provider) {
-      return provider
-    }
+    return resolveCopilotProviderOrThrow(config, requestedModel)
   }
 
-  const directCopilot = resolveCopilotProvider(config, false, requestedModel)
-  if (directCopilot) {
-    return directCopilot
-  }
-
+  // Step 3: Auto-detect — try Anthropic first (simpler auth), then Copilot
   const anthropicKey = getAnthropicApiKey(config)
   if (anthropicKey) {
     return {
@@ -52,17 +38,15 @@ export function resolveLLMProvider(config: TestMindConfig): ResolvedLLMProvider 
     }
   }
 
-  const copilotWithAuth = resolveCopilotProvider(config, true, requestedModel)
-  if (copilotWithAuth) {
-    return copilotWithAuth
-  }
+  const copilot = resolveCopilotProvider(config, requestedModel)
+  if (copilot) return copilot
 
   throw new Error(
     '未找到可用的 LLM provider。\n' +
     '可选方式:\n' +
     '1. 设置 ANTHROPIC_API_KEY 使用 Anthropic\n' +
-    '2. 设置 TESTMIND_PROVIDER=copilot，并提供 TESTMIND_COPILOT_TOKEN\n' +
-    '3. 安装 copilot-auth（Python 模块）后使用 TESTMIND_PROVIDER=copilot',
+    '2. 设置 TESTMIND_COPILOT_TOKEN 使用 Copilot\n' +
+    '3. 通过 --provider 或配置文件显式指定',
   )
 }
 
@@ -112,31 +96,39 @@ function resolveAnthropicProvider(config: TestMindConfig, model?: string): Resol
   }
 }
 
+function resolveCopilotProviderOrThrow(config: TestMindConfig, model?: string): ResolvedLLMProvider {
+  const provider = resolveCopilotProvider(config, model)
+  if (provider) return provider
+
+  throw new Error(
+    '已指定 provider=copilot，但未获取到 Copilot token。\n' +
+    '请设置 TESTMIND_COPILOT_TOKEN，或通过 copilotTokenCommand 配置获取命令。',
+  )
+}
+
 function resolveCopilotProvider(
   config: TestMindConfig,
-  allowCopilotAuth: boolean,
   model?: string,
 ): ResolvedLLMProvider | undefined {
+  // Try direct token (env var or config)
   const directToken = getDirectCopilotToken(config)
   if (directToken) {
     return buildCopilotProvider(config, model, directToken.token, directToken.source)
   }
 
+  // Try command-based token
   const commandToken = getCommandCopilotToken(config)
   if (commandToken) {
     return buildCopilotProvider(config, model, commandToken.token, commandToken.source)
   }
 
-  if (!allowCopilotAuth) {
-    return undefined
-  }
-
+  // Try copilot-auth Python module
   const authToken = getCopilotAuthToken(config)
-  if (!authToken) {
-    return undefined
+  if (authToken) {
+    return buildCopilotProvider(config, model, authToken, 'copilot-auth')
   }
 
-  return buildCopilotProvider(config, model, authToken, 'copilot-auth')
+  return undefined
 }
 
 function buildCopilotProvider(
