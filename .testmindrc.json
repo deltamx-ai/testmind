@@ -1,0 +1,10 @@
+{
+  "baseBranch": "master",
+  "provider": "auto",
+  "maxDiffLines": 3000,
+  "maxDiffLinesPerFile": 200,
+  "maxImpactedFiles": 30,
+  "maxContextChars": 80000,
+  "historyDays": 90,
+  "verbose": false
+}
