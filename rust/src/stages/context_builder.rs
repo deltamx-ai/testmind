@@ -43,6 +43,41 @@ pub fn build_context(ctx: &AnalysisContext, max_context_chars: Option<usize>) ->
     }
     add_section("变更概要", &summary_lines.join("\n"), true);
 
+    if !ctx.requirements.is_empty() {
+        let requirement_lines: Vec<String> = ctx
+            .requirements
+            .iter()
+            .map(|item| format!("- {}: {}", item.id, item.text))
+            .collect();
+        add_section("需求与验收标准", &requirement_lines.join("\n"), true);
+    }
+
+    if !ctx.knowledge_matches.is_empty() {
+        let knowledge_lines: Vec<String> = ctx
+            .knowledge_matches
+            .iter()
+            .map(|match_item| {
+                let mut line = format!(
+                    "- {} [{}] {}",
+                    match_item.item.id, match_item.item.kind, match_item.item.title
+                );
+                if !match_item.reasons.is_empty() {
+                    line.push_str(&format!(" | 命中原因: {}", match_item.reasons.join("; ")));
+                }
+                if !match_item.item.acceptance.is_empty() {
+                    line.push_str(&format!(
+                        " | 验收点: {}",
+                        match_item.item.acceptance.join("; ")
+                    ));
+                } else if !match_item.item.checks.is_empty() {
+                    line.push_str(&format!(" | 检查点: {}", match_item.item.checks.join("; ")));
+                }
+                line
+            })
+            .collect();
+        add_section("相关知识库条目", &knowledge_lines.join("\n"), true);
+    }
+
     // 2. Commits (required)
     if !git.commits.is_empty() {
         let commit_list: Vec<String> = git
@@ -171,7 +206,12 @@ pub fn build_context(ctx: &AnalysisContext, max_context_chars: Option<usize>) ->
     if !config_files.is_empty() {
         let list: Vec<String> = config_files
             .iter()
-            .map(|f| format!("### {} [{:?}]\n```diff\n{}\n```", f.path, f.category, f.diff))
+            .map(|f| {
+                format!(
+                    "### {} [{:?}]\n```diff\n{}\n```",
+                    f.path, f.category, f.diff
+                )
+            })
             .collect();
         add_section("配置/迁移/Schema 变更", &list.join("\n\n"), false);
     }

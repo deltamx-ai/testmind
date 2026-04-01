@@ -10,19 +10,26 @@ const DEFAULT_MAX_TOTAL_DIFF_LINES: usize = 3000;
 fn categorize_file(path: &str) -> FileCategory {
     let lower = path.to_lowercase();
 
-    if Regex::new(r"\.(test|spec)\.[^.]+$").unwrap().is_match(&lower)
+    if Regex::new(r"\.(test|spec)\.[^.]+$")
+        .unwrap()
+        .is_match(&lower)
         || lower.contains("__tests__/")
         || lower.contains("/test/")
     {
         return FileCategory::Test;
     }
-    if Regex::new(r"\.(config|rc)\.[^.]+$").unwrap().is_match(&lower)
+    if Regex::new(r"\.(config|rc)\.[^.]+$")
+        .unwrap()
+        .is_match(&lower)
         || Regex::new(r"/\.[^/]*rc").unwrap().is_match(&lower)
         || lower.contains("tsconfig")
     {
         return FileCategory::Config;
     }
-    if Regex::new(r"\.(css|scss|less|sass|styl)$").unwrap().is_match(&lower) {
+    if Regex::new(r"\.(css|scss|less|sass|styl)$")
+        .unwrap()
+        .is_match(&lower)
+    {
         return FileCategory::Style;
     }
     if lower.contains("migration") || Regex::new(r"\.migration\.[^.]+$").unwrap().is_match(&lower) {
@@ -87,8 +94,16 @@ pub async fn analyze_git(
     for line in &numstat_lines {
         let parts: Vec<&str> = line.splitn(3, '\t').collect();
         if parts.len() >= 3 {
-            let additions = if parts[0] == "-" { 0 } else { parts[0].parse::<usize>().unwrap_or(0) };
-            let deletions = if parts[1] == "-" { 0 } else { parts[1].parse::<usize>().unwrap_or(0) };
+            let additions = if parts[0] == "-" {
+                0
+            } else {
+                parts[0].parse::<usize>().unwrap_or(0)
+            };
+            let deletions = if parts[1] == "-" {
+                0
+            } else {
+                parts[1].parse::<usize>().unwrap_or(0)
+            };
             numstat_map.insert(parts[2].to_string(), (additions, deletions));
         }
     }
@@ -147,11 +162,8 @@ pub async fn analyze_git(
     }
 
     // Get commits
-    let commit_lines = git_lines(
-        &["log", "--format=%H|%s|%ai|%an", &range],
-        cwd,
-    )
-    .unwrap_or_default();
+    let commit_lines =
+        git_lines(&["log", "--format=%H|%s|%ai|%an", &range], cwd).unwrap_or_default();
 
     let commits: Vec<CommitInfo> = commit_lines
         .iter()

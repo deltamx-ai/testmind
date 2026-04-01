@@ -1,10 +1,16 @@
 use crate::types::{
-    AnalysisContext, LLMOutput, RiskLevel, TestSuggestionType,
+    AnalysisContext, CommandExecution, GateReport, GateStatus, LLMOutput, RiskLevel,
+    TestSuggestionType,
 };
 
 const PRIORITY_ORDER: [&str; 4] = ["critical", "high", "medium", "low"];
 
-pub fn generate_report(ctx: &AnalysisContext, llm_result: &LLMOutput) -> String {
+pub fn generate_report(
+    ctx: &AnalysisContext,
+    llm_result: &LLMOutput,
+    command_results: &[CommandExecution],
+    gate_report: &GateReport,
+) -> String {
     let git = &ctx.git;
     let history = &ctx.history;
     let test_coverage = &ctx.test_coverage;
@@ -14,7 +20,8 @@ pub fn generate_report(ctx: &AnalysisContext, llm_result: &LLMOutput) -> String 
     lines.push("# TestMind 自测检查清单".to_string());
     lines.push(String::new());
     lines.push(format!(
-        "> 分支: {} → {} | 变更: {} files (+{} -{}) | 风险等级: **{}**",
+        "> Gate: **{}** | 分支: {} → {} | 变更: {} files (+{} -{}) | 风险等级: **{}**",
+        gate_report.status,
         git.head_branch,
         git.base_branch,
         git.stats.files_changed,
@@ -22,6 +29,18 @@ pub fn generate_report(ctx: &AnalysisContext, llm_result: &LLMOutput) -> String 
         git.stats.deletions,
         llm_result.risk_level
     ));
+    lines.push(String::new());
+
+    lines.push("## 验收结论".to_string());
+    lines.push(String::new());
+    for finding in &gate_report.findings {
+        let label = match finding.status {
+            GateStatus::Pass => "PASS",
+            GateStatus::Warn => "WARN",
+            GateStatus::Fail => "FAIL",
+        };
+        lines.push(format!("- **{}** {}", label, finding.summary));
+    }
     lines.push(String::new());
 
     // Summary
@@ -46,20 +65,22 @@ pub fn generate_report(ctx: &AnalysisContext, llm_result: &LLMOutput) -> String 
                 continue;
             }
 
-            let title = format!(
-                "{}{}",
-                priority_str[..1].to_uppercase(),
-                &priority_str[1..]
-            );
+            let title = format!("{}{}", priority_str[..1].to_uppercase(), &priority_str[1..]);
             lines.push(format!("### {}", title));
             lines.push(String::new());
 
             for item in items {
-                lines.push(format!("- [ ] **{}** [{}] {}", item.id, item.category, item.title));
+                lines.push(format!(
+                    "- [ ] **{}** [{}] {}",
+                    item.id, item.category, item.title
+                ));
                 lines.push(format!("  - {}", item.description));
                 if !item.related_files.is_empty() {
-                    let files: Vec<String> =
-                        item.related_files.iter().map(|f| format!("`{}`", f)).collect();
+                    let files: Vec<String> = item
+                        .related_files
+                        .iter()
+                        .map(|f| format!("`{}`", f))
+                        .collect();
                     lines.push(format!("  - 文件: {}", files.join(", ")));
                 }
                 lines.push(format!("  - 验证方式: {}", item.verification_method));
@@ -104,6 +125,87 @@ pub fn generate_report(ctx: &AnalysisContext, llm_result: &LLMOutput) -> String 
             }
             lines.push(String::new());
         }
+    }
+
+    if !ctx.requirements.is_empty() {
+        lines.push("## 需求覆盖".to_string());
+        lines.push(String::new());
+        if llm_result.requirement_coverage.is_empty() {
+            lines.push("- 没有收到有效的需求覆盖映射。".to_string());
+        } else {
+            for item in &llm_result.requirement_coverage {
+                lines.push(format!(
+                    "- **{}** [{}] {}",
+                    item.id, item.status, item.requirement
+                ));
+                lines.push(format!("  - 证据: {}", item.evidence));
+                if !item.related_files.is_empty() {
+                    let files: Vec<String> = item
+                        .related_files
+                        .iter()
+                        .map(|f| format!("`{}`", f))
+                        .collect();
+                    lines.push(format!("  - 文件: {}", files.join(", ")));
+                }
+            }
+        }
+        lines.push(String::new());
+    }
+
+    if !ctx.knowledge_matches.is_empty() {
+        lines.push("## 相关知识库".to_string());
+        lines.push(String::new());
+        for matched in &ctx.knowledge_matches {
+            lines.push(format!(
+                "- **{}** [{}] {}",
+                matched.item.id, matched.item.kind, matched.item.title
+            ));
+            if !matched.reasons.is_empty() {
+                lines.push(format!("  - 命中原因: {}", matched.reasons.join("; ")));
+            }
+            if !matched.item.acceptance.is_empty() {
+                lines.push(format!(
+                    "  - 验收点: {}",
+                    matched.item.acceptance.join("; ")
+                ));
+            }
+            if let Some(source) = matched.item.source.as_ref() {
+                let mut source_parts = Vec::new();
+                if let Some(source_type) = source.source_type.as_ref() {
+                    source_parts.push(format!("type={}", source_type));
+                }
+                if let Some(key) = source.key.as_ref() {
+                    source_parts.push(format!("key={}", key));
+                }
+                if let Some(url) = source.url.as_ref() {
+                    source_parts.push(format!("url={}", url));
+                }
+                if !source_parts.is_empty() {
+                    lines.push(format!("  - 来源: {}", source_parts.join(", ")));
+                }
+            }
+        }
+        lines.push(String::new());
+    }
+
+    if !command_results.is_empty() {
+        lines.push("## 验证命令结果".to_string());
+        lines.push(String::new());
+        for result in command_results {
+            lines.push(format!(
+                "- `{}` — {}{}",
+                result.command,
+                result.status,
+                result
+                    .exit_code
+                    .map(|code| format!(" (exit {})", code))
+                    .unwrap_or_default()
+            ));
+            if !result.stderr.is_empty() {
+                lines.push(format!("  - stderr: {}", result.stderr));
+            }
+        }
+        lines.push(String::new());
     }
 
     // Risk hotspots

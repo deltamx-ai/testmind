@@ -53,8 +53,15 @@ fn build_import_patterns(file_path: &str) -> Vec<Regex> {
     let mut patterns = Vec::new();
 
     patterns.push(Regex::new(&format!(r#"from\s+['"].*{}['"]"#, escaped_stem)).unwrap());
-    patterns.push(Regex::new(&format!(r#"require\s*\(\s*['"].*{}['"]\s*\)"#, escaped_stem)).unwrap());
-    patterns.push(Regex::new(&format!(r#"import\s*\(\s*['"].*{}['"]\s*\)"#, escaped_stem)).unwrap());
+    patterns.push(
+        Regex::new(&format!(
+            r#"require\s*\(\s*['"].*{}['"]\s*\)"#,
+            escaped_stem
+        ))
+        .unwrap(),
+    );
+    patterns
+        .push(Regex::new(&format!(r#"import\s*\(\s*['"].*{}['"]\s*\)"#, escaped_stem)).unwrap());
 
     // Also match by directory path segments
     let parts: Vec<&str> = without_ext.split('/').collect();
@@ -94,7 +101,9 @@ pub async fn trace_dependencies(
 
     // Get all source files in the repo
     let all_files = git_lines(
-        &["ls-files", "*.ts", "*.tsx", "*.js", "*.jsx", "*.vue", "*.svelte"],
+        &[
+            "ls-files", "*.ts", "*.tsx", "*.js", "*.jsx", "*.vue", "*.svelte",
+        ],
         cwd,
     )
     .unwrap_or_default();
@@ -119,11 +128,13 @@ pub async fn trace_dependencies(
                 for pattern in &patterns {
                     if pattern.is_match(&content) {
                         importer_count += 1;
-                        impacted_map.entry(candidate.clone()).or_insert_with(|| ImpactedFile {
-                            path: candidate.clone(),
-                            reason: format!("imports from {}", changed.path),
-                            depth: 1,
-                        });
+                        impacted_map
+                            .entry(candidate.clone())
+                            .or_insert_with(|| ImpactedFile {
+                                path: candidate.clone(),
+                                reason: format!("imports from {}", changed.path),
+                                depth: 1,
+                            });
                         if is_entry_point(candidate) {
                             entry_points.insert(candidate.clone());
                         }

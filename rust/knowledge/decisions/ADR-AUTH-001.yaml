@@ -1,0 +1,22 @@
+id: ADR-REPORT-001
+kind: decision
+title: Reports must be auditable and machine-consumable
+summary: TestMind output should preserve enough structure to support CI gates and human review together.
+module: reporter
+tags:
+  - report
+  - gate
+  - ci
+filePatterns:
+  - src/reporter.rs
+  - src/gate.rs
+  - src/types.rs
+  - rust/src/reporter.rs
+  - rust/src/gate.rs
+  - rust/src/types.rs
+checks:
+  - Gate result is explicit in output
+  - Report includes evidence, not only summary text
+source:
+  sourceType: adr
+  key: ADR-REPORT-001

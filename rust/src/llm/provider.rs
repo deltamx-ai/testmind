@@ -222,11 +222,7 @@ fn get_command_copilot_token(config: &TestMindConfig) -> Option<(String, AuthSou
         .clone()
         .or_else(|| std::env::var("TESTMIND_COPILOT_TOKEN_CMD").ok())?;
 
-    let output = Command::new("sh")
-        .arg("-c")
-        .arg(&command)
-        .output()
-        .ok()?;
+    let output = Command::new("sh").arg("-c").arg(&command).output().ok()?;
 
     if !output.status.success() {
         return None;
@@ -246,11 +242,7 @@ fn get_copilot_auth_token(config: &TestMindConfig) -> Option<String> {
 
     let code = "import sys\nimport copilot_auth as ca\ndef handle(token):\n    print(token)\nca.authenticate_copilot_token([handle])";
 
-    let result = Command::new(&python)
-        .arg("-c")
-        .arg(code)
-        .output()
-        .ok()?;
+    let result = Command::new(&python).arg("-c").arg(code).output().ok()?;
 
     if !result.status.success() {
         return None;

@@ -1,6 +1,7 @@
 #[macro_use]
 extern crate lazy_static;
 
+mod gate;
 mod llm;
 mod pipeline;
 mod reporter;
@@ -15,10 +16,17 @@ use std::process;
 use clap::Parser;
 
 use crate::pipeline::run_pipeline;
-use crate::utils::{branch_exists, detect_base_branch, get_current_branch, is_git_repo, load_config};
+use crate::types::GateStatus;
+use crate::utils::{
+    branch_exists, detect_base_branch, get_current_branch, is_git_repo, load_config,
+};
 
 #[derive(Parser, Debug)]
-#[command(name = "testmind", version = "0.1.0", about = "Code-change-driven self-test advisor")]
+#[command(
+    name = "testmind",
+    version = "0.1.0",
+    about = "Code-change-driven self-test advisor"
+)]
 struct Cli {
     /// Base branch to compare against
     #[arg(short = 'b', long)]
@@ -40,6 +48,26 @@ struct Cli {
     #[arg(short = 'm', long)]
     model: Option<String>,
 
+    /// Knowledge base directory
+    #[arg(long)]
+    knowledge_dir: Option<String>,
+
+    /// Requirements file exported from Jira/PRD/issue tracker
+    #[arg(long)]
+    requirements_file: Option<String>,
+
+    /// Inline requirements text
+    #[arg(long)]
+    requirements_text: Option<String>,
+
+    /// One acceptance criterion, repeatable
+    #[arg(long = "requirement")]
+    requirements: Vec<String>,
+
+    /// Validation command to execute, repeatable
+    #[arg(long = "test-command")]
+    test_commands: Vec<String>,
+
     /// Repository path
     #[arg(short = 'r', long, default_value = ".")]
     repo: String,
@@ -55,6 +83,10 @@ struct Cli {
     /// Show analysis scope without calling LLM
     #[arg(long)]
     dry_run: bool,
+
+    /// Enable stricter gate rules
+    #[arg(long)]
+    strict: bool,
 }
 
 #[tokio::main]
@@ -80,11 +112,35 @@ async fn main() {
     if let Some(ref m) = cli.model {
         config.model = Some(m.clone());
     }
+    if let Some(ref dir) = cli.knowledge_dir {
+        config.knowledge_dir = Some(dir.clone());
+    }
+    if let Some(ref path) = cli.requirements_file {
+        config.requirements_file = Some(path.clone());
+    }
+    if let Some(ref text) = cli.requirements_text {
+        config.requirements_text = Some(text.clone());
+    }
+    if !cli.requirements.is_empty() {
+        config.requirement_items = Some(cli.requirements.clone());
+    }
+    if !cli.test_commands.is_empty() {
+        config.test_commands = Some(cli.test_commands.clone());
+    }
     if cli.verbose {
         config.verbose = Some(true);
     }
     if cli.dry_run {
         config.dry_run = Some(true);
+    }
+    if cli.strict {
+        config.strict = Some(true);
+        if config.min_coverage_ratio.is_none() {
+            config.min_coverage_ratio = Some(0.7);
+        }
+        if config.fail_on_stage_warnings.is_none() {
+            config.fail_on_stage_warnings = Some(true);
+        }
     }
 
     // Determine branches
@@ -132,18 +188,22 @@ async fn main() {
     eprintln!();
 
     match run_pipeline(&cwd_str, &base_branch, &head_branch, &config).await {
-        Ok(report) => {
+        Ok(outcome) => {
             if let Some(ref output_file) = cli.output {
                 let out_path = PathBuf::from(output_file)
                     .canonicalize()
                     .unwrap_or_else(|_| PathBuf::from(output_file));
-                if let Err(e) = fs::write(&out_path, &report) {
+                if let Err(e) = fs::write(&out_path, &outcome.report) {
                     eprintln!("\n错误: 无法写入文件 {}: {}", out_path.display(), e);
                     process::exit(1);
                 }
                 eprintln!("\n报告已保存到: {}", out_path.display());
             } else {
-                println!("{}", report);
+                println!("{}", outcome.report);
+            }
+
+            if matches!(outcome.gate_status, Some(GateStatus::Fail)) {
+                process::exit(2);
             }
         }
         Err(err) => {

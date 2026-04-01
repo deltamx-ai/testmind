@@ -1,16 +1,25 @@
 use anyhow::Result;
 
+use crate::gate::evaluate_gate;
 use crate::llm::provider::resolve_llm_provider;
 use crate::reporter::generate_report;
 use crate::stages::context_builder::build_context;
 use crate::stages::dependency_tracer::trace_dependencies;
 use crate::stages::git_analyzer::analyze_git;
 use crate::stages::history_analyzer::analyze_history;
+use crate::stages::knowledge_retriever::{load_knowledge_base, retrieve_relevant_knowledge};
 use crate::stages::llm_analyzer::analyze_llm;
 use crate::stages::test_scanner::scan_test_coverage;
 use crate::types::{
-    AnalysisContext, DependencyAnalysis, FileCategory, HistoryAnalysis, TestCoverage, TestMindConfig,
+    AnalysisContext, CommandExecution, DependencyAnalysis, FileCategory, GateStatus,
+    HistoryAnalysis, KnowledgeKind, RequirementItem, TestCoverage, TestMindConfig,
 };
+use crate::utils::{collect_requirements, run_shell_command};
+
+pub struct PipelineOutcome {
+    pub report: String,
+    pub gate_status: Option<GateStatus>,
+}
 
 fn log(stage: &str, message: &str) {
     eprintln!("  [{}] {}", stage, message);
@@ -27,7 +36,21 @@ pub async fn run_pipeline(
     base_branch: &str,
     head_branch: &str,
     config: &TestMindConfig,
-) -> Result<String> {
+) -> Result<PipelineOutcome> {
+    let requirement_items = collect_requirements(
+        cwd,
+        config.requirements_file.as_deref(),
+        config.requirements_text.as_deref(),
+        config.requirement_items.as_deref().unwrap_or(&[]),
+    )?;
+
+    if !requirement_items.is_empty() {
+        log(
+            "0/6",
+            &format!("加载 {} 条需求/验收标准", requirement_items.len()),
+        );
+    }
+
     // Stage 1: Git analysis
     log("1/6", "分析 Git 变更...");
     let git = analyze_git(
@@ -40,10 +63,10 @@ pub async fn run_pipeline(
     .await?;
 
     if git.changed_files.is_empty() {
-        return Ok(format!(
-            "没有发现 {} 相对于 {} 的变更。",
-            head_branch, base_branch
-        ));
+        return Ok(PipelineOutcome {
+            report: format!("没有发现 {} 相对于 {} 的变更。", head_branch, base_branch),
+            gate_status: Some(GateStatus::Pass),
+        });
     }
 
     let source_count = git
@@ -59,6 +82,51 @@ pub async fn run_pipeline(
             source_count
         ),
     );
+
+    let knowledge_base = load_knowledge_base(cwd, config.knowledge_dir.as_deref())?;
+    if !knowledge_base.is_empty() {
+        log(
+            "0/6",
+            &format!("加载 {} 条知识库条目", knowledge_base.len()),
+        );
+    }
+    let max_knowledge_items = config.max_knowledge_items.unwrap_or(12);
+    let knowledge_matches =
+        retrieve_relevant_knowledge(&git.changed_files, &knowledge_base, max_knowledge_items);
+    if !knowledge_matches.is_empty() {
+        log(
+            "1/6",
+            &format!("命中 {} 条相关知识库条目", knowledge_matches.len()),
+        );
+    }
+
+    let mut combined_requirements = requirement_items.clone();
+    for knowledge in &knowledge_matches {
+        if knowledge.item.kind != KnowledgeKind::Requirement {
+            continue;
+        }
+
+        let mut text = knowledge.item.title.clone();
+        if !knowledge.item.acceptance.is_empty() {
+            text.push_str(" | 验收: ");
+            text.push_str(&knowledge.item.acceptance.join("; "));
+        } else if let Some(summary) = knowledge.item.summary.as_ref() {
+            text.push_str(" | ");
+            text.push_str(summary);
+        }
+
+        if combined_requirements
+            .iter()
+            .any(|item| item.id == knowledge.item.id)
+        {
+            continue;
+        }
+
+        combined_requirements.push(RequirementItem {
+            id: knowledge.item.id.clone(),
+            text,
+        });
+    }
 
     // Stage 2 & 3 & 4: Run in parallel
     log("2/6", "追踪依赖关系...");
@@ -80,10 +148,7 @@ pub async fn run_pipeline(
     );
 
     let dependencies = dep_result.unwrap_or_else(|err| {
-        stage_warnings.push(format!(
-            "[依赖追踪] 分析失败，数据可能不完整: {}",
-            err
-        ));
+        stage_warnings.push(format!("[依赖追踪] 分析失败，数据可能不完整: {}", err));
         DependencyAnalysis {
             impacted_files: Vec::new(),
             shared_modules: Vec::new(),
@@ -92,10 +157,7 @@ pub async fn run_pipeline(
     });
 
     let history = hist_result.unwrap_or_else(|err| {
-        stage_warnings.push(format!(
-            "[历史分析] 分析失败，数据可能不完整: {}",
-            err
-        ));
+        stage_warnings.push(format!("[历史分析] 分析失败，数据可能不完整: {}", err));
         HistoryAnalysis {
             hotspots: Vec::new(),
             recent_fix_commits: Vec::new(),
@@ -103,10 +165,7 @@ pub async fn run_pipeline(
     });
 
     let test_coverage = test_result.unwrap_or_else(|err| {
-        stage_warnings.push(format!(
-            "[测试扫描] 分析失败，数据可能不完整: {}",
-            err
-        ));
+        stage_warnings.push(format!("[测试扫描] 分析失败，数据可能不完整: {}", err));
         TestCoverage {
             covered: Vec::new(),
             uncovered: Vec::new(),
@@ -150,6 +209,8 @@ pub async fn run_pipeline(
         dependencies,
         history,
         test_coverage,
+        requirements: combined_requirements,
+        knowledge_matches,
         stage_warnings,
     };
     let context_text = build_context(&ctx, config.max_context_chars);
@@ -182,6 +243,23 @@ pub async fn run_pipeline(
             ));
         }
         lines.push(String::new());
+        if !ctx.requirements.is_empty() {
+            lines.push("## 需求输入".to_string());
+            for item in &ctx.requirements {
+                lines.push(format!("- `{}` {}", item.id, item.text));
+            }
+            lines.push(String::new());
+        }
+        if !ctx.knowledge_matches.is_empty() {
+            lines.push("## 命中的知识库条目".to_string());
+            for item in &ctx.knowledge_matches {
+                lines.push(format!(
+                    "- `{}` [{}] {}",
+                    item.item.id, item.item.kind, item.item.title
+                ));
+            }
+            lines.push(String::new());
+        }
         lines.push("## 依赖影响".to_string());
         lines.push(format!(
             "- 受影响文件: {}",
@@ -234,7 +312,10 @@ pub async fn run_pipeline(
             }
         }
 
-        return Ok(lines.join("\n"));
+        return Ok(PipelineOutcome {
+            report: lines.join("\n"),
+            gate_status: None,
+        });
     }
 
     // Stage 6: LLM analysis
@@ -256,6 +337,22 @@ pub async fn run_pipeline(
         &format!("生成 {} 条检查项", llm_result.checklist.len()),
     );
 
+    let command_results: Vec<CommandExecution> = config
+        .test_commands
+        .clone()
+        .unwrap_or_default()
+        .into_iter()
+        .map(|command| {
+            log("6/6", &format!("执行验证命令: {}", command));
+            run_shell_command(&command, cwd)
+        })
+        .collect();
+
+    let gate_report = evaluate_gate(&ctx, &llm_result, &command_results, config);
+
     // Generate report
-    Ok(generate_report(&ctx, &llm_result))
+    Ok(PipelineOutcome {
+        report: generate_report(&ctx, &llm_result, &command_results, &gate_report),
+        gate_status: Some(gate_report.status),
+    })
 }

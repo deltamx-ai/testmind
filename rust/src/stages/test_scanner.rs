@@ -55,10 +55,7 @@ fn get_file_stem(file_path: &str) -> String {
         .to_string()
 }
 
-pub async fn scan_test_coverage(
-    changed_files: &[ChangedFile],
-    cwd: &str,
-) -> Result<TestCoverage> {
+pub async fn scan_test_coverage(changed_files: &[ChangedFile], cwd: &str) -> Result<TestCoverage> {
     let source_files: Vec<&ChangedFile> = changed_files
         .iter()
         .filter(|f| f.category == FileCategory::Source)
@@ -74,11 +71,8 @@ pub async fn scan_test_coverage(
     }
 
     // Get all test files in repo
-    let test_files = git_lines(
-        &["ls-files", "*.test.*", "*.spec.*", "*/__tests__/*"],
-        cwd,
-    )
-    .unwrap_or_default();
+    let test_files =
+        git_lines(&["ls-files", "*.test.*", "*.spec.*", "*/__tests__/*"], cwd).unwrap_or_default();
 
     let test_files_lower: Vec<String> = test_files.iter().map(|f| f.to_lowercase()).collect();
 

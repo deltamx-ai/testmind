@@ -4,8 +4,9 @@ use std::path::Path;
 use std::process::Command;
 
 use anyhow::{Context, Result};
+use regex::Regex;
 
-use crate::types::TestMindConfig;
+use crate::types::{CommandExecution, CommandStatus, RequirementItem, TestMindConfig};
 
 pub fn exec(command: &str, args: &[&str], cwd: &str) -> Result<String> {
     let output = Command::new(command)
@@ -16,12 +17,7 @@ pub fn exec(command: &str, args: &[&str], cwd: &str) -> Result<String> {
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        anyhow::bail!(
-            "Command failed: {} {:?}\n{}",
-            command,
-            args,
-            stderr.trim()
-        );
+        anyhow::bail!("Command failed: {} {:?}\n{}", command, args, stderr.trim());
     }
 
     Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
@@ -32,7 +28,11 @@ pub fn exec_lines(command: &str, args: &[&str], cwd: &str) -> Result<Vec<String>
     Ok(if output.is_empty() {
         Vec::new()
     } else {
-        output.lines().filter(|l| !l.is_empty()).map(String::from).collect()
+        output
+            .lines()
+            .filter(|l| !l.is_empty())
+            .map(String::from)
+            .collect()
     })
 }
 
@@ -77,15 +77,36 @@ pub fn get_current_branch(cwd: &str) -> Result<String> {
 pub fn get_language_from_path(file_path: &str) -> String {
     let ext = file_path.rsplit('.').next().unwrap_or("").to_lowercase();
     let map: HashMap<&str, &str> = HashMap::from([
-        ("ts", "typescript"), ("tsx", "typescript"), ("js", "javascript"), ("jsx", "javascript"),
-        ("py", "python"), ("go", "go"), ("rs", "rust"), ("java", "java"), ("kt", "kotlin"),
-        ("rb", "ruby"), ("php", "php"), ("cs", "csharp"), ("swift", "swift"),
-        ("vue", "vue"), ("svelte", "svelte"),
-        ("css", "css"), ("scss", "scss"), ("less", "less"),
-        ("sql", "sql"), ("graphql", "graphql"),
-        ("json", "json"), ("yaml", "yaml"), ("yml", "yaml"), ("toml", "toml"),
-        ("md", "markdown"), ("html", "html"), ("xml", "xml"),
-        ("sh", "shell"), ("bash", "shell"), ("zsh", "shell"),
+        ("ts", "typescript"),
+        ("tsx", "typescript"),
+        ("js", "javascript"),
+        ("jsx", "javascript"),
+        ("py", "python"),
+        ("go", "go"),
+        ("rs", "rust"),
+        ("java", "java"),
+        ("kt", "kotlin"),
+        ("rb", "ruby"),
+        ("php", "php"),
+        ("cs", "csharp"),
+        ("swift", "swift"),
+        ("vue", "vue"),
+        ("svelte", "svelte"),
+        ("css", "css"),
+        ("scss", "scss"),
+        ("less", "less"),
+        ("sql", "sql"),
+        ("graphql", "graphql"),
+        ("json", "json"),
+        ("yaml", "yaml"),
+        ("yml", "yaml"),
+        ("toml", "toml"),
+        ("md", "markdown"),
+        ("html", "html"),
+        ("xml", "xml"),
+        ("sh", "shell"),
+        ("bash", "shell"),
+        ("zsh", "shell"),
         ("dockerfile", "dockerfile"),
     ]);
     map.get(ext.as_str()).unwrap_or(&ext.as_str()).to_string()
@@ -101,6 +122,140 @@ pub fn load_config(cwd: &str) -> TestMindConfig {
         }
     }
     TestMindConfig::default()
+}
+
+pub fn read_text_file(path: &str, cwd: &str) -> Result<String> {
+    let full_path = Path::new(path);
+    let resolved = if full_path.is_absolute() {
+        full_path.to_path_buf()
+    } else {
+        Path::new(cwd).join(path)
+    };
+
+    fs::read_to_string(&resolved)
+        .with_context(|| format!("Failed to read file: {}", resolved.display()))
+}
+
+pub fn parse_requirement_items(text: &str) -> Vec<RequirementItem> {
+    let bullet_re = Regex::new(r"^\s*(?:[-*+]|(?:\d+|[a-zA-Z]+)[\.\)])\s+").unwrap();
+    let mut items: Vec<String> = Vec::new();
+
+    for line in text.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+
+        if bullet_re.is_match(trimmed) {
+            items.push(bullet_re.replace(trimmed, "").trim().to_string());
+        }
+    }
+
+    if items.is_empty() {
+        let paragraphs: Vec<String> = text
+            .split("\n\n")
+            .map(|block| {
+                block
+                    .lines()
+                    .map(str::trim)
+                    .filter(|l| !l.is_empty())
+                    .collect::<Vec<_>>()
+                    .join(" ")
+            })
+            .filter(|block| !block.is_empty())
+            .collect();
+
+        if paragraphs.len() > 1 {
+            items = paragraphs;
+        } else if let Some(paragraph) = paragraphs.first() {
+            items.push(paragraph.clone());
+        }
+    }
+
+    items
+        .into_iter()
+        .enumerate()
+        .map(|(idx, text)| RequirementItem {
+            id: format!("REQ-{:03}", idx + 1),
+            text,
+        })
+        .collect()
+}
+
+pub fn collect_requirements(
+    cwd: &str,
+    requirements_file: Option<&str>,
+    requirements_text: Option<&str>,
+    requirement_items: &[String],
+) -> Result<Vec<RequirementItem>> {
+    let mut merged: Vec<RequirementItem> = Vec::new();
+
+    if let Some(path) = requirements_file {
+        let file_text = read_text_file(path, cwd)?;
+        merged.extend(parse_requirement_items(&file_text));
+    }
+
+    if let Some(text) = requirements_text {
+        merged.extend(parse_requirement_items(text));
+    }
+
+    if !requirement_items.is_empty() {
+        merged.extend(
+            requirement_items
+                .iter()
+                .enumerate()
+                .map(|(idx, text)| RequirementItem {
+                    id: format!("REQ-CLI-{:03}", idx + 1),
+                    text: text.trim().to_string(),
+                }),
+        );
+    }
+
+    let mut deduped: Vec<RequirementItem> = Vec::new();
+    let mut seen: HashMap<String, usize> = HashMap::new();
+
+    for item in merged {
+        let key = item.text.to_lowercase();
+        if seen.contains_key(&key) {
+            continue;
+        }
+        seen.insert(key, deduped.len());
+        deduped.push(item);
+    }
+
+    Ok(deduped)
+}
+
+pub fn run_shell_command(command: &str, cwd: &str) -> CommandExecution {
+    let output = Command::new("sh")
+        .args(["-lc", command])
+        .current_dir(cwd)
+        .output();
+
+    match output {
+        Ok(output) => {
+            let exit_code = output.status.code();
+            let status = if output.status.success() {
+                CommandStatus::Passed
+            } else {
+                CommandStatus::Failed
+            };
+            CommandExecution {
+                command: command.to_string(),
+                status,
+                exit_code,
+                stdout: String::from_utf8_lossy(&output.stdout).trim().to_string(),
+                stderr: String::from_utf8_lossy(&output.stderr).trim().to_string(),
+            }
+        }
+        Err(err) => CommandExecution {
+            command: command.to_string(),
+            status: CommandStatus::Failed,
+            exit_code: None,
+            stdout: String::new(),
+            stderr: err.to_string(),
+        },
+    }
 }
 
 pub fn truncate_diff(diff: &str, max_lines: usize) -> String {

@@ -30,7 +30,13 @@ pub async fn analyze_history(
 
         let since_arg = format!("{} days ago", history_days);
         let log_lines = match git_lines(
-            &["log", &format!("--since={}", since_arg), "--format=%H|%s|%ai", "--", &file.path],
+            &[
+                "log",
+                &format!("--since={}", since_arg),
+                "--format=%H|%s|%ai",
+                "--",
+                &file.path,
+            ],
             cwd,
         ) {
             Ok(lines) => lines,

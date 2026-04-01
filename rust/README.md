@@ -56,6 +56,22 @@ testmind --base main --head feature/foo --repo /path/to/repo
 # Dry run（不调用 LLM）
 testmind --base main --head feature/foo --dry-run
 
+# 带需求文本做验收
+testmind --base main --head feature/foo \
+  --requirements-file jira.txt \
+  --test-command "cargo test" \
+  --test-command "cargo clippy -- -D warnings"
+
+# 使用本地知识库做召回
+testmind --base main --head feature/foo \
+  --knowledge-dir knowledge \
+  --test-command "cargo test"
+
+# 严格门禁模式（失败时进程退出码为 2）
+testmind --base main --head feature/foo \
+  --requirements-file jira.txt \
+  --strict
+
 # 输出到文件
 testmind --base main --head feature/foo -o report.md
 
@@ -75,10 +91,16 @@ Options:
       --branch <BRANCH>      目标分支（--head 的旧别名）
   -p, --provider <PROVIDER>  LLM provider: auto | anthropic | copilot
   -m, --model <MODEL>        LLM 模型 ID
+      --requirements-file    需求/验收标准文件
+      --requirements-text    内联需求文本
+      --requirement          单条验收标准（可重复）
+      --knowledge-dir        本地知识库目录 [默认: ./knowledge]
+      --test-command         验证命令（可重复）
   -r, --repo <REPO>          仓库路径 [默认: .]
   -o, --output <OUTPUT>      输出到文件
   -v, --verbose              显示详细分析过程
       --dry-run              仅展示分析范围，不调用 LLM
+      --strict               启用严格门禁
   -h, --help                 帮助
   -V, --version              版本
 ```
@@ -104,9 +126,64 @@ Options:
 3. **历史风险分析** — 统计文件近期修改频率和 bug 修复次数，识别风险热区
 4. **测试覆盖扫描** — 匹配变更文件对应的测试文件，计算覆盖率
 5. **上下文构建** — 将以上分析结果组装为 LLM 可消费的上下文文本
-6. **LLM 分析** — 调用 Anthropic 或 Copilot API，生成自测检查清单
+6. **LLM 分析** — 调用 Anthropic 或 Copilot API，生成自测检查清单和需求覆盖映射
+7. **Gate 评估** — 结合需求覆盖、critical/high 风险、测试执行结果、覆盖缺口输出 `PASS/WARN/FAIL`
 
 > Stage 2/3/4 通过 `tokio::join!` 并行执行。
+
+## 现在它如何变得“可验收”
+
+- 可以输入 Jira/PRD/需求文档文本，而不是只看 diff
+- LLM 必须逐条输出需求是否 `covered / partial / missing / unclear`
+- 可以执行真实验证命令，例如 `cargo test`、`npm test`、`pytest`
+- 会生成明确的 Gate 结果：
+  - `PASS`: 未发现阻塞项
+  - `WARN`: 有高风险项或证据不足，建议人工复核
+  - `FAIL`: 存在 missing requirement、critical 项、失败的验证命令等
+- Gate 为 `FAIL` 时 CLI 退出码为 `2`，可直接接 CI
+
+## 知识库模式
+
+推荐在仓库里维护一个 `knowledge/` 目录，把 Jira/PRD/事故复盘沉淀成结构化条目：
+
+```text
+knowledge/
+  requirements/
+    REQ-AUTH-001.yaml
+  bug-patterns/
+    BUG-AUTH-001.yaml
+  decisions/
+    ADR-AUTH-001.yaml
+```
+
+支持 `yaml` / `yml` / `json`。最小字段示例：
+
+```yaml
+id: REQ-AUTH-001
+kind: requirement
+title: Expired OTP must be rejected
+module: auth
+tags:
+  - otp
+  - login
+filePatterns:
+  - src/auth/**/*.rs
+acceptance:
+  - Expired OTP returns 401
+  - Error code is OTP_EXPIRED
+source:
+  sourceType: jira
+  key: AUTH-123
+  url: https://jira.example.com/browse/AUTH-123
+```
+
+召回逻辑当前基于：
+
+- `filePatterns` 和变更文件路径匹配
+- `module` 和改动模块匹配
+- `tags` 和改动路径文本匹配
+
+命中的 `requirement` 条目会自动并入需求集合，参与 `requirementCoverage` 和 gate 判定；`bug-pattern` / `decision` 条目会进入 LLM 上下文和最终报告，作为额外约束与风险线索。
 
 ## License
 

@@ -1,0 +1,27 @@
+id: REQ-CLI-001
+kind: requirement
+title: CLI branch comparison must remain explicit and safe
+summary: The CLI must require distinct base/head branches and reject invalid branch references with clear errors.
+module: cli
+tags:
+  - branch
+  - cli
+  - compare
+filePatterns:
+  - src/main.rs
+  - src/utils.rs
+  - src/pipeline.rs
+  - rust/src/main.rs
+  - rust/src/utils.rs
+  - rust/src/pipeline.rs
+acceptance:
+  - Base and head branches cannot be the same
+  - Missing branches return explicit error messages
+  - The report states the analyzed branch direction clearly
+checks:
+  - Verify branch validation failure paths
+  - Verify report header shows head to base direction
+source:
+  sourceType: jira
+  key: TM-101
+  url: https://jira.example.com/browse/TM-101

@@ -1,0 +1,22 @@
+id: BUG-PIPELINE-001
+kind: bug-pattern
+title: Stage failure silently degraded report quality
+summary: A prior regression swallowed stage errors and produced incomplete reports without making the risk obvious enough.
+module: pipeline
+tags:
+  - pipeline
+  - stage
+  - warning
+filePatterns:
+  - src/pipeline.rs
+  - src/reporter.rs
+  - src/stages/**/*.rs
+  - rust/src/pipeline.rs
+  - rust/src/reporter.rs
+  - rust/src/stages/**/*.rs
+checks:
+  - Ensure stage failures are surfaced in warnings or gate findings
+  - Verify missing stage data cannot look like a clean PASS
+source:
+  sourceType: incident
+  key: INC-2026-004
