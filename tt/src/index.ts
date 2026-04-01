@@ -218,3 +218,49 @@ program
 // ─── parse & run ─────────────────────────────────────────────────────────────
 
 program.parse(process.argv)
+
+// ─── inspect command (prompt debugger) ───────────────────────────────────────
+
+program
+  .command('inspect')
+  .description('Inspect assembled prompts without calling the LLM')
+  .requiredOption('-t, --ticket <key>', 'Mock Jira ticket key (e.g. PROJ-101)')
+  .option('-s, --stage <n>', 'Stage to inspect: 1, 2, or 3 (default: 1)', '1')
+  .option('--show-chars', 'Show character + token counts per block')
+  .option('--show-debug', 'Print block-level include/skip log')
+  .option('--max-chars <n>', 'Max chars to print per section', '5000')
+  .action(async (opts) => {
+    const { createJiraClient } = await import('./jira/client.js')
+    const { inspectStage1, inspectStage3 } = await import('./prompt/inspect.js')
+
+    const jira = createJiraClient({ mode: 'mock' })
+    const ticket = await jira.getTicket(opts.ticket)
+    const inspectOpts = {
+      showChars: opts.showChars,
+      showDebug: opts.showDebug,
+      maxPrintChars: parseInt(opts.maxChars, 10),
+    }
+
+    const stage = parseInt(opts.stage, 10)
+
+    if (stage === 1) {
+      inspectStage1(ticket, inspectOpts)
+    } else if (stage === 3) {
+      // Stage 3 needs Stage 1 output — run it first (no LLM needed for mock display)
+      console.log(chalk.gray('  Stage 3 needs JiraReport + CodeReport.'))
+      console.log(chalk.gray('  Showing with minimal placeholder data.\n'))
+      const { runStage1 } = await import('./stages/stage1-jira.js')
+      const jiraReport = await import('./prompt/inspect.js').then(() =>
+        ({ ticketKey: ticket.key, summary: ticket.summary, requirements: [], acceptanceCriteria: [],
+           outOfScope: [], riskFlags: [], ambiguities: [], hasExplicitAC: false })
+      )
+      const codeReport = {
+        implementedFeatures: ['(placeholder)'], modifiedBehaviors: [],
+        deletedBehaviors: [], sideEffects: [], testCoverage: { covered: [], uncovered: [] },
+        codeSmells: [], affectedFiles: [],
+      }
+      inspectStage3(jiraReport as any, codeReport, undefined, inspectOpts)
+    } else {
+      console.log(chalk.yellow('  Stage 2 inspect requires a real git repo. Use --stage 1 or --stage 3.'))
+    }
+  })

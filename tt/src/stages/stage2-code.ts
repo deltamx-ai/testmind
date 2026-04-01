@@ -1,24 +1,29 @@
 /**
- * stages/stage2-code.ts
+ * stages/stage2-code.ts  (重写版)
  *
- * Stage 2: Code Analysis
- *
- * 2a — Static analysis (no LLM)
- *       Classify files, count changes, detect test coverage gaps,
- *       flag suspicious patterns (console.log, TODO, hardcoded values…)
- *
- * 2b — LLM analysis
- *       Read the diff and convert it from "what changed" → "what business features
- *       does this implement / modify / remove?"
- *
- * Output → CodeReport
+ * 2a: 纯静态分析（无 LLM）
+ * 2b: PromptBuilder 组装 prompt → LLM 理解业务意图
  */
 
-import type { GitDiffResult, CodeReport, FileDiff } from '../types/index.js'
-import { diffToPromptText } from '../git/analyzer.js'
-import { callLLM, extractJSON, JSON_ONLY_INSTRUCTION } from '../llm/client.js'
+import type { GitDiffResult, CodeReport } from '../types/index.js'
+import { callLLM, extractJSON } from '../llm/client.js'
+import { PromptBuilder } from '../prompt/builder.js'
+import {
+  ROLE_SENIOR_ENGINEER,
+  TASK_CODE_ANALYSIS,
+  RULE_CODE_BUSINESS_LENS,
+  RULE_CONCISE,
+  RULE_JSON_ONLY,
+  SCHEMA_CODE_REPORT,
+} from '../prompt/blocks.js'
+import { gitDiffSlot, staticAnalysisSlot, techStackSlot } from '../prompt/slots.js'
 
-// ─── 2a: static analysis ─────────────────────────────────────────────────────
+// ─── 静态分析 ─────────────────────────────────────────────────────────────────
+
+const CATEGORY_MAP: Record<string, string> = {
+  source: 'source', test: 'test', config: 'config',
+  migration: 'migration', 'api-schema': 'api-schema',
+}
 
 export interface StaticAnalysisResult {
   sourceFiles: string[]
@@ -26,11 +31,8 @@ export interface StaticAnalysisResult {
   configFiles: string[]
   migrationFiles: string[]
   apiSchemaFiles: string[]
-  /** source files without any corresponding test file changes */
   untestedSourceFiles: string[]
-  /** patterns that indicate potential issues */
   codeSmellHints: string[]
-  /** Import/require relationships changed in diff */
   changedImports: string[]
 }
 
@@ -39,183 +41,96 @@ const CODE_SMELL_PATTERNS: Array<{ pattern: RegExp; hint: string }> = [
   { pattern: /TODO|FIXME|HACK|XXX/g, hint: 'TODO/FIXME comments in changed code' },
   { pattern: /password|secret|token|api_key/gi, hint: 'Possible hardcoded credential or sensitive value' },
   { pattern: /catch\s*\(\w+\)\s*\{\s*\}/g, hint: 'Empty catch block (swallowed exception)' },
-  { pattern: /any\s*[;,)]/g, hint: 'TypeScript `any` type used' },
   { pattern: /\.catch\(\s*\(\s*\)\s*=>/g, hint: 'Silent promise rejection handler' },
-  { pattern: /setTimeout.*0\)/g, hint: 'setTimeout with 0ms delay (possible hack)' },
-  { pattern: /Math\.random|Date\.now/g, hint: 'Non-deterministic value used (may affect test reliability)' },
 ]
 
-function runStaticAnalysis(diff: GitDiffResult): StaticAnalysisResult {
-  const sourceFiles: string[] = []
-  const testFiles: string[] = []
-  const configFiles: string[] = []
-  const migrationFiles: string[] = []
-  const apiSchemaFiles: string[] = []
+export function runStaticAnalysis(diff: GitDiffResult): StaticAnalysisResult {
+  const buckets: Record<string, string[]> = {
+    source: [], test: [], config: [], migration: [], 'api-schema': [], other: [],
+  }
   const codeSmellHints = new Set<string>()
   const changedImports: string[] = []
 
   for (const file of diff.files) {
-    switch (file.category) {
-      case 'source':      sourceFiles.push(file.path); break
-      case 'test':        testFiles.push(file.path); break
-      case 'config':      configFiles.push(file.path); break
-      case 'migration':   migrationFiles.push(file.path); break
-      case 'api-schema':  apiSchemaFiles.push(file.path); break
-    }
-
+    const cat = CATEGORY_MAP[file.category] ?? 'other'
+    buckets[cat].push(file.path)
     if (file.isBinary) continue
 
-    // Analyse added lines for smells
-    const addedLines = file.hunks
-      .flatMap((h) => h.lines)
-      .filter((l) => l.type === '+')
-      .map((l) => l.content)
+    const addedText = file.hunks
+      .flatMap(h => h.lines)
+      .filter(l => l.type === '+')
+      .map(l => l.content)
       .join('\n')
 
     for (const { pattern, hint } of CODE_SMELL_PATTERNS) {
-      if (pattern.test(addedLines)) {
-        codeSmellHints.add(`${hint} — in ${file.path}`)
+      if (new RegExp(pattern.source, pattern.flags).test(addedText)) {
+        codeSmellHints.add(`${hint} — ${file.path}`)
       }
     }
 
-    // Track import changes
-    const importMatches = addedLines.match(/^(?:import|require|from)\s+.+/gm)
-    if (importMatches) {
-      changedImports.push(...importMatches.map((m) => `${file.path}: ${m.trim()}`))
-    }
+    const imports = addedText.match(/^(?:import|require|from)\s+.+/gm)
+    if (imports) changedImports.push(...imports.map(m => `${file.path}: ${m.trim()}`))
   }
 
-  // Determine which source files have no matching test change
   const testBasenames = new Set(
-    testFiles.map((t) =>
+    buckets.test.map(t =>
       t.replace(/\.(test|spec)\.(ts|tsx|js|jsx|py|go|rb|java)$/i, '').split('/').pop() ?? '',
     ),
   )
 
-  const untestedSourceFiles = sourceFiles.filter((s) => {
+  const untestedSourceFiles = buckets.source.filter(s => {
     const basename = s.replace(/\.(ts|tsx|js|jsx|py|go|rb|java|rs)$/i, '').split('/').pop() ?? ''
     return !testBasenames.has(basename)
   })
 
   return {
-    sourceFiles,
-    testFiles,
-    configFiles,
-    migrationFiles,
-    apiSchemaFiles,
+    sourceFiles: buckets.source,
+    testFiles: buckets.test,
+    configFiles: buckets.config,
+    migrationFiles: buckets.migration,
+    apiSchemaFiles: buckets['api-schema'],
     untestedSourceFiles,
     codeSmellHints: [...codeSmellHints],
-    changedImports: changedImports.slice(0, 30), // cap at 30 for prompt
+    changedImports: changedImports.slice(0, 30),
   }
 }
 
-// ─── 2b: LLM analysis ────────────────────────────────────────────────────────
+// ─── LLM 分析 ─────────────────────────────────────────────────────────────────
 
 interface LLMCodeReport {
   implementedFeatures: string[]
   modifiedBehaviors: string[]
   deletedBehaviors: string[]
   sideEffects: string[]
-  testCoverage: {
-    covered: string[]
-    uncovered: string[]
-  }
+  testCoverage: { covered: string[]; uncovered: string[] }
   codeSmells: string[]
 }
 
-async function runLLMCodeAnalysis(
-  diff: GitDiffResult,
-  staticResult: StaticAnalysisResult,
-  techStack?: string,
-): Promise<LLMCodeReport> {
-  const diffText = diffToPromptText(diff, 1500)
-
-  const systemPrompt = `
-You are a senior software engineer performing a pre-test code review.
-Your goal is to understand what business functionality this git diff implements,
-modifies, or removes — from a PRODUCT / BUSINESS perspective, not a code perspective.
-
-Think like a QA engineer reading the diff: what features are now available?
-What existing behaviour changed? What might break?
-
-${techStack ? `Tech stack context: ${techStack}` : ''}
-
-${JSON_ONLY_INSTRUCTION}
-
-Output schema:
-{
-  "implementedFeatures": [
-    "Concise sentence describing a business feature this diff implements"
-  ],
-  "modifiedBehaviors": [
-    "Existing behaviour X was changed to Y (be specific about before/after)"
-  ],
-  "deletedBehaviors": [
-    "Feature or behaviour that was removed"
-  ],
-  "sideEffects": [
-    "Module or functionality that might be indirectly affected by these changes"
-  ],
-  "testCoverage": {
-    "covered": ["Changes that have corresponding test modifications"],
-    "uncovered": ["Changes that lack test coverage"]
-  },
-  "codeSmells": [
-    "Code quality concern (not related to requirements)"
-  ]
-}
-
-Rules:
-- implementedFeatures: use business language (e.g. "Users can now reset their password via email")
-  NOT code language (e.g. "Added resetPassword() method")
-- modifiedBehaviors: must be specific. Bad: "Changed login logic". Good: "Login now requires email verification before issuing JWT"
-- sideEffects: only include modules that are ACTUALLY imported/called by changed code
-- testCoverage: cross-reference the list of untested source files provided
-- Be concise. No item should exceed two sentences.
-`.trim()
-
-  const userPrompt = `
-## Diff to analyse
-
-${diffText}
-
-## Static analysis findings (use these to inform testCoverage)
-
-Source files changed (${staticResult.sourceFiles.length}): ${staticResult.sourceFiles.join(', ') || 'none'}
-Test files changed (${staticResult.testFiles.length}): ${staticResult.testFiles.join(', ') || 'none'}
-Source files with NO matching test changes: ${staticResult.untestedSourceFiles.join(', ') || 'none'}
-Migrations: ${staticResult.migrationFiles.join(', ') || 'none'}
-API schema changes: ${staticResult.apiSchemaFiles.join(', ') || 'none'}
-Pre-detected code smells: ${staticResult.codeSmellHints.join(' | ') || 'none'}
-`.trim()
-
-  const raw = await callLLM({
-    system: systemPrompt,
-    userPrompt,
-    maxTokens: 3000,
-    temperature: 0.2,
-  })
-
-  return extractJSON<LLMCodeReport>(raw)
-}
-
-// ─── public API ───────────────────────────────────────────────────────────────
-
-export async function runStage2(
-  diff: GitDiffResult,
-  techStack?: string,
-): Promise<CodeReport> {
-  // 2a: static (synchronous, fast)
+export async function runStage2(diff: GitDiffResult, techStack?: string): Promise<CodeReport> {
   const staticResult = runStaticAnalysis(diff)
 
-  // 2b: LLM understanding (async)
-  const llmResult = await runLLMCodeAnalysis(diff, staticResult, techStack)
+  // ── Prompt 组装 ───────────────────────────────────────────────────────────
+  //
+  // 条件分支：techStack 仅在配置了才注入（skipIfEmpty=true 是默认值）
+  // 动态注入：diff 内容 + static 分析结果（避免 LLM 重复检测已知问题）
 
-  // Merge static code smells with LLM-detected ones
-  const allCodeSmells = [
-    ...staticResult.codeSmellHints,
-    ...(llmResult.codeSmells ?? []),
-  ].filter(Boolean)
+  const { system, user } = new PromptBuilder()
+    .system(ROLE_SENIOR_ENGINEER)
+    .system(TASK_CODE_ANALYSIS)
+    .system(RULE_CODE_BUSINESS_LENS)
+    .system(RULE_CONCISE)
+    .system(SCHEMA_CODE_REPORT)
+    .system(RULE_JSON_ONLY)
+    // techStack slot — 空时自动跳过（skipIfEmpty=true）
+    .user(techStackSlot(techStack))
+    // diff 内容：限制 1200 行 source lines，超出截断
+    .user(gitDiffSlot(diff, 1200))
+    // 静态分析的发现直接注入，让 LLM 聚焦在语义理解上
+    .user(staticAnalysisSlot(staticResult))
+    .build()
+
+  const raw = await callLLM({ system, userPrompt: user, maxTokens: 3000, temperature: 0.2 })
+  const llmResult = extractJSON<LLMCodeReport>(raw)
 
   return {
     implementedFeatures: llmResult.implementedFeatures ?? [],
@@ -226,10 +141,13 @@ export async function runStage2(
       covered: llmResult.testCoverage?.covered ?? [],
       uncovered: [
         ...(llmResult.testCoverage?.uncovered ?? []),
-        ...staticResult.untestedSourceFiles.map((f) => `No test changes for ${f}`),
-      ].filter((v, i, arr) => arr.indexOf(v) === i), // dedupe
+        ...staticResult.untestedSourceFiles.map(f => `No test changes for ${f}`),
+      ].filter((v, i, arr) => arr.indexOf(v) === i),
     },
-    codeSmells: allCodeSmells,
+    codeSmells: [
+      ...staticResult.codeSmellHints,
+      ...(llmResult.codeSmells ?? []),
+    ],
     affectedFiles: staticResult.sourceFiles,
   }
 }
