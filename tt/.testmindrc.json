@@ -1,0 +1,15 @@
+{
+  "techStack": "React 18 frontend, Node.js 20 + Express backend, PostgreSQL 15 database",
+  "businessRules": [
+    "All payment-related changes must check for idempotency",
+    "Any auth change must verify token invalidation works correctly",
+    "Database schema changes must include a rollback migration",
+    "API endpoints must validate input with zod or equivalent",
+    "PII fields must never appear in logs"
+  ],
+  "criticalPaths": [
+    "src/payments/**",
+    "src/auth/**",
+    "src/api/routes/**"
+  ]
+}
