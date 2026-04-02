@@ -1,10 +1,10 @@
 /**
- * stages/stage3-crosscheck.ts  (重写版)
+ * stages/stage3-crosscheck.ts
  *
- * Stage 3 是整个 pipeline 中 prompt 最复杂的一步：
- *   - 两份结构化数据（JiraReport + CodeReport）同时注入
- *   - businessRules 条件注入（有配置才加）
- *   - 多个规则约束块叠加
+ * Stage 3: the most complex prompt in the pipeline:
+ *   - Two structured data inputs (JiraReport + CodeReport) injected simultaneously
+ *   - businessRules conditionally injected (only if configured)
+ *   - Multiple rule constraint blocks stacked
  */
 
 import type {
@@ -47,15 +47,15 @@ export async function runStage3(
   businessRules?: string[],
 ): Promise<CrossCheckReport> {
 
-  // ── Prompt 组装 ───────────────────────────────────────────────────────────
+  // ── Prompt assembly ─────────────────────────────────────────────────────
   //
   // System:
-  //   角色 → 任务 → 证据规则 → severity 分级 → 风险分级 → 简洁规则 → schema → JSON约束
+  //   Role → Task → Evidence rules → Severity guide → Risk level → Concise → Schema → JSON constraint
   //
   // User:
-  //   JiraReport（已结构化，LLM 不需要解析原始 Jira）
-  //   CodeReport（已结构化，LLM 不需要解析原始 diff）
-  //   businessRules（条件注入，为空时整个 slot 被跳过）
+  //   JiraReport (already structured, LLM doesn't need to parse raw Jira)
+  //   CodeReport (already structured, LLM doesn't need to parse raw diff)
+  //   businessRules (conditionally injected, skipped when empty)
 
   const { system, user } = new PromptBuilder()
     .system(ROLE_GAP_ANALYST)
@@ -66,15 +66,15 @@ export async function runStage3(
     .system(RULE_CONCISE)
     .system(SCHEMA_CROSSCHECK_REPORT)
     .system(RULE_JSON_ONLY)
-    // Jira spec — 来自 Stage 1 输出（已经是干净的结构化文本）
+    // Jira spec — from Stage 1 output (clean structured text)
     .user(jiraReportSlot(jiraReport))
-    // Code summary — 来自 Stage 2 输出（同上）
+    // Code summary — from Stage 2 output
     .user(codeReportSlot(codeReport))
-    // 业务规则 — 只有 .testmindrc.json 配置了才注入，否则 slot 被跳过
+    // Business rules — only injected if configured in .testmindrc.json
     .user(businessRulesSlot(businessRules))
     .build()
 
-  // Stage 3 内容最多，给更大的 token 预算
+  // Stage 3 has the most content — give a larger token budget
   const raw = await callLLM({
     system,
     userPrompt: user,
@@ -84,27 +84,33 @@ export async function runStage3(
 
   const parsed = extractJSON<LLMCrossCheck>(raw)
 
+  const VALID_STATUSES = ['implemented', 'partial', 'missing', 'unclear'] as const
+  const VALID_SEVERITIES = ['critical', 'high', 'medium', 'low'] as const
+
   const requirementCoverage: RequirementCheck[] = (parsed.requirementCoverage ?? []).map(r => ({
     requirementId: r.requirementId ?? '',
     requirementDescription: r.requirementDescription ?? '',
-    status: r.status ?? 'unclear',
+    status: VALID_STATUSES.includes(r.status as typeof VALID_STATUSES[number]) ? r.status : 'unclear',
     evidence: r.evidence ?? '',
     concern: r.concern ?? '',
   }))
 
   const potentialBugs: PotentialBug[] = (parsed.potentialBugs ?? []).map(b => ({
     id: b.id ?? 'BUG-???',
-    severity: b.severity ?? 'medium',
+    severity: VALID_SEVERITIES.includes(b.severity as typeof VALID_SEVERITIES[number]) ? b.severity : 'medium',
     description: b.description ?? '',
     location: Array.isArray(b.location) ? b.location : [b.location ?? ''],
     triggerCondition: b.triggerCondition ?? '',
     suggestion: b.suggestion ?? '',
   }))
 
-  const riskLevel: RiskLevel = (['high', 'medium', 'low'] as const)
-    .includes(parsed.riskLevel as RiskLevel)
+  const VALID_RISK_LEVELS = ['high', 'medium', 'low'] as const
+  const riskLevel: RiskLevel = VALID_RISK_LEVELS.includes(parsed.riskLevel as RiskLevel)
     ? (parsed.riskLevel as RiskLevel)
-    : 'medium'
+    : (() => {
+        console.warn(`[Stage3] LLM returned unexpected riskLevel "${parsed.riskLevel}", defaulting to "medium"`)
+        return 'medium' as RiskLevel
+      })()
 
   return {
     requirementCoverage,

@@ -168,25 +168,8 @@ class MockJiraClient implements JiraClient {
   async getTicket(key: string): Promise<JiraTicket> {
     const ticket = MOCK_TICKETS[key]
     if (!ticket) {
-      // Generate a minimal ticket so the pipeline can still run
-      console.warn(`[MockJira] No fixture for ${key} — using placeholder ticket`)
-      return {
-        key,
-        summary: `[Mock] Placeholder ticket for ${key}`,
-        type: 'Task',
-        status: 'In Progress',
-        priority: 'Medium',
-        description: `This is a placeholder ticket for ${key}. No fixture exists in the mock client.`,
-        subtasks: [],
-        linkedIssues: [],
-        labels: [],
-        comments: [],
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      }
+      throw new Error(`[MockJira] No fixture for ticket ${key}. Available: ${MOCK_TICKET_KEYS.join(', ')}`)
     }
-    // Simulate network latency
-    await sleep(120)
     return { ...ticket }
   }
 }
@@ -208,7 +191,14 @@ class RealJiraClient implements JiraClient {
 
   async getTicket(key: string): Promise<JiraTicket> {
     const url = `${this.baseUrl}/rest/api/3/issue/${encodeURIComponent(key)}?expand=renderedFields,comments`
-    const res = await fetch(url, { headers: this.headers })
+
+    let res: Response
+    try {
+      res = await fetch(url, { headers: this.headers })
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      throw new Error(`Jira API network error for ${key}: ${msg} (URL: ${this.baseUrl})`)
+    }
 
     if (!res.ok) {
       const body = await res.text().catch(() => '')
@@ -322,10 +312,6 @@ export function createJiraClient(opts: JiraClientOptions): JiraClient {
 }
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((r) => setTimeout(r, ms))
-}
 
 /** List available mock ticket keys (useful for CLI help) */
 export const MOCK_TICKET_KEYS = Object.keys(MOCK_TICKETS)

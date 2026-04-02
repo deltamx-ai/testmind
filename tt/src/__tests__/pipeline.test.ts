@@ -8,10 +8,10 @@ import { describe, it, expect } from 'vitest'
 // ─── Import the pure functions we can test without LLM or git ────────────────
 
 // We test diffToPromptText by constructing a synthetic GitDiffResult
-import type { GitDiffResult } from '../src/types/index.js'
-import { diffToPromptText } from '../src/git/analyzer.js'
-import { runStage4 } from '../src/stages/stage4-report.js'
-import type { JiraReport, CodeReport, CrossCheckReport } from '../src/types/index.js'
+import type { GitDiffResult } from '../types/index.js'
+import { diffToPromptText } from '../git/analyzer.js'
+import { runStage4 } from '../stages/stage4-report.js'
+import type { JiraReport, CodeReport, CrossCheckReport } from '../types/index.js'
 
 // ─── diffToPromptText tests ───────────────────────────────────────────────────
 
@@ -57,6 +57,7 @@ describe('diffToPromptText', () => {
     ],
     totalAdditions: 80,
     totalDeletions: 5,
+    truncated: false,
   }
 
   it('includes commit messages', () => {
@@ -138,6 +139,7 @@ describe('runStage4', () => {
     testCoverage: { covered: ['Email sending'], uncovered: ['Token expiry logic'] },
     codeSmells: ['console.log left in resetPassword.ts'],
     affectedFiles: ['src/auth/resetPassword.ts'],
+    criticalPathFiles: [],
   }
 
   const crossCheck: CrossCheckReport = {

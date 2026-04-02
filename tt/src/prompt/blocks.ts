@@ -1,28 +1,28 @@
 /**
  * prompt/blocks.ts
  *
- * 所有"静态"prompt 片段（骨架）。
+ * All "static" prompt fragments (skeletons).
  *
- * 这里的内容不包含任何运行时数据，可以被：
- *   - 版本控制管理（改 prompt 就是改这个文件）
- *   - A/B 测试（维护 v1 / v2 版本对比效果）
- *   - 单元测试（验证 schema 格式是否正确）
+ * Contents here contain no runtime data and can be:
+ *   - Version controlled (changing prompts = changing this file)
+ *   - A/B tested (maintain v1/v2 versions for comparison)
+ *   - Unit tested (verify schema format correctness)
  *
- * 命名规范：
- *   ROLE_*    = 角色定义
- *   TASK_*    = 任务说明
- *   RULE_*    = 行为约束规则
- *   SCHEMA_*  = 输出格式 schema
- *   AC_*      = Acceptance Criteria 相关的条件分支块
+ * Naming conventions:
+ *   ROLE_*    = Role definitions
+ *   TASK_*    = Task descriptions
+ *   RULE_*    = Behavioral constraint rules
+ *   SCHEMA_*  = Output format schemas
+ *   AC_*      = Acceptance Criteria conditional branch blocks
  */
 
 import type { PromptBlock } from './types.js'
 import { block } from './builder.js'
 
-// ─── 通用约束 ─────────────────────────────────────────────────────────────────
+// ─── Common constraints ──────────────────────────────────────────────────────
 
 /**
- * 强制 JSON 输出。追加到每个需要结构化输出的 system prompt 末尾。
+ * Force JSON-only output. Append to end of every system prompt requiring structured output.
  */
 export const RULE_JSON_ONLY: PromptBlock = block(
   `IMPORTANT: Your response MUST be valid JSON only.
@@ -33,7 +33,7 @@ If you are uncertain about a field, use null or an empty array — never omit th
 )
 
 /**
- * 通用简洁性约束。
+ * Common conciseness constraint.
  */
 export const RULE_CONCISE: PromptBlock = block(
   `Conciseness rules:
@@ -44,7 +44,7 @@ export const RULE_CONCISE: PromptBlock = block(
 )
 
 /**
- * Severity 分级说明 — 在 Stage 3 中使用。
+ * Severity classification — used in Stage 3.
  */
 export const RULE_BUG_SEVERITY: PromptBlock = block(
   `Bug severity guide:
@@ -80,7 +80,7 @@ Key responsibilities:
 )
 
 /**
- * 有明确 AC 时使用的指令块。
+ * Block used when explicit AC exists.
  */
 export const AC_HAS_EXPLICIT: PromptBlock = block(
   `This ticket HAS explicit Acceptance Criteria.
@@ -91,7 +91,7 @@ export const AC_HAS_EXPLICIT: PromptBlock = block(
 )
 
 /**
- * 没有明确 AC 时使用的指令块（条件分支的另一侧）。
+ * Block used when no explicit AC exists (the else branch).
  */
 export const AC_MUST_INFER: PromptBlock = block(
   `This ticket does NOT have explicit Acceptance Criteria.
@@ -103,7 +103,7 @@ export const AC_MUST_INFER: PromptBlock = block(
 )
 
 /**
- * priority 判断规则。
+ * Priority classification rules.
  */
 export const RULE_PRIORITY_GUIDE: PromptBlock = block(
   `Priority guide for requirements:

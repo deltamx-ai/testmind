@@ -1,56 +1,56 @@
 /**
  * prompt/types.ts
  *
- * Prompt 系统的核心类型定义。
+ * Core type definitions for the prompt system.
  *
- * 设计原则：
- *   - PromptBlock  = 一个可复用的 prompt 片段（角色/任务/schema/规则…）
- *   - PromptSlot   = 运行时注入的动态槽位
- *   - PromptTemplate = 由 Block + Slot 组合而成的完整 prompt
- *   - 任何 Block 都可以是条件的（condition 为 false 时整块跳过）
+ * Design principles:
+ *   - PromptBlock  = a reusable prompt fragment (role/task/schema/rule...)
+ *   - PromptSlot   = a runtime-injected dynamic slot
+ *   - PromptTemplate = a complete prompt composed of Blocks + Slots
+ *   - Any Block can be conditional (skipped when enabled=false)
  */
 
-// ─── 基础构建块 ───────────────────────────────────────────────────────────────
+// ─── Building blocks ─────────────────────────────────────────────────────────
 
 /**
- * 一个静态 prompt 片段。
- * `section` 是可选的 markdown 标题，方便调试时定位。
+ * A static prompt fragment.
+ * `section` is an optional markdown heading for debugging/identification.
  */
 export interface PromptBlock {
   section?: string
   content: string
-  /** 如果 false，整块被跳过。默认 true。 */
+  /** If false, this block is skipped entirely. Default true. */
   enabled?: boolean
 }
 
 /**
- * 运行时动态注入的槽位。
- * value 是纯文本（可以很长），section 是它在 prompt 里的标题。
+ * A runtime dynamic injection slot.
+ * `value` is plain text (can be long), `section` is its heading in the prompt.
  */
 export interface PromptSlot {
   section: string
   value: string
-  /** 如果 value 为空，是否整个槽位跳过。默认 true（跳过空槽）。 */
+  /** If value is empty, skip this entire slot. Default true (skip empty). */
   skipIfEmpty?: boolean
 }
 
 /**
- * 一个完整的 prompt 由 system + user 两部分组成。
- * 两部分都是 Block 数组，最终按顺序 join('\n\n') 拼接。
+ * A complete prompt consists of system + user parts.
+ * Both parts are Block arrays, joined with '\n\n' in order.
  */
 export interface PromptTemplate {
-  /** 给 LLM 的"全局角色设定" */
+  /** Global role setup for the LLM */
   system: Array<PromptBlock>
-  /** 给 LLM 的"具体本次任务" */
+  /** Specific task content for this invocation */
   user: Array<PromptBlock | PromptSlot>
 }
 
-// ─── 构建结果 ────────────────────────────────────────────────────────────────
+// ─── Build result ────────────────────────────────────────────────────────────
 
 export interface BuiltPrompt {
   system: string
   user: string
-  /** 调试用：记录哪些 block/slot 被包含/跳过 */
+  /** Debug info: which blocks/slots were included/skipped */
   debug: DebugRecord[]
 }
 
@@ -61,15 +61,15 @@ export interface DebugRecord {
   charCount?: number
 }
 
-// ─── Token 预算 ──────────────────────────────────────────────────────────────
+// ─── Token budget ────────────────────────────────────────────────────────────
 
 /**
- * 用于控制动态内容（diff、Jira 描述）的最大字符数，
- * 避免单个注入内容把 context window 撑爆。
+ * Controls max character counts for dynamic content (diffs, Jira descriptions),
+ * preventing a single injection from exhausting the context window.
  */
 export interface TokenBudget {
-  /** system prompt 部分大约的 token 上限（粗估 1 token ≈ 4 chars） */
+  /** Approximate token limit for the system prompt (rough estimate: 1 token ~ 4 chars) */
   systemBudget?: number
-  /** user prompt 里动态内容的最大字符数 */
+  /** Max characters for dynamic content in the user prompt */
   dynamicContentMaxChars?: number
 }

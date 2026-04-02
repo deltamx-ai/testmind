@@ -139,12 +139,19 @@ program
       )
     } catch (err) {
       console.error('')
-      console.error(chalk.red('Pipeline failed:'), err)
+      const errMsg = err instanceof Error ? err.message : String(err)
+      console.error(chalk.red('Pipeline failed:'), errMsg)
       process.exit(1)
     }
 
     // ─ Write outputs
     const outDir = resolve(opts.output)
+    // Validate output directory is within project scope
+    const cwd = resolve('.')
+    if (!outDir.startsWith(cwd) && !opts.output.startsWith('.')) {
+      console.error(chalk.red(`Output directory must be relative to the project root or start with ".": ${outDir}`))
+      process.exit(1)
+    }
     mkdirSync(outDir, { recursive: true })
 
     const prefix = `${ticket.key}-${Date.now()}`
@@ -215,10 +222,6 @@ program
     console.log()
   })
 
-// ─── parse & run ─────────────────────────────────────────────────────────────
-
-program.parse(process.argv)
-
 // ─── inspect command (prompt debugger) ───────────────────────────────────────
 
 program
@@ -246,21 +249,33 @@ program
     if (stage === 1) {
       inspectStage1(ticket, inspectOpts)
     } else if (stage === 3) {
-      // Stage 3 needs Stage 1 output — run it first (no LLM needed for mock display)
+      // Stage 3 needs Stage 1 output — run it with LLM to get real data
       console.log(chalk.gray('  Stage 3 needs JiraReport + CodeReport.'))
-      console.log(chalk.gray('  Showing with minimal placeholder data.\n'))
+      console.log(chalk.gray('  Running Stage 1 (LLM) to get JiraReport...\n'))
       const { runStage1 } = await import('./stages/stage1-jira.js')
-      const jiraReport = await import('./prompt/inspect.js').then(() =>
-        ({ ticketKey: ticket.key, summary: ticket.summary, requirements: [], acceptanceCriteria: [],
-           outOfScope: [], riskFlags: [], ambiguities: [], hasExplicitAC: false })
-      )
-      const codeReport = {
-        implementedFeatures: ['(placeholder)'], modifiedBehaviors: [],
-        deletedBehaviors: [], sideEffects: [], testCoverage: { covered: [], uncovered: [] },
-        codeSmells: [], affectedFiles: [],
+      let jiraReport
+      try {
+        jiraReport = await runStage1(ticket)
+      } catch {
+        console.log(chalk.yellow('  LLM call failed. Using minimal placeholder data.\n'))
+        jiraReport = {
+          ticketKey: ticket.key, summary: ticket.summary,
+          requirements: [], acceptanceCriteria: [],
+          outOfScope: [], riskFlags: [], ambiguities: [], hasExplicitAC: false,
+        }
       }
-      inspectStage3(jiraReport as any, codeReport, undefined, inspectOpts)
+      const codeReport = {
+        implementedFeatures: ['(placeholder — run with real git repo for actual data)'],
+        modifiedBehaviors: [], deletedBehaviors: [], sideEffects: [],
+        testCoverage: { covered: [], uncovered: [] },
+        codeSmells: [], affectedFiles: [], criticalPathFiles: [],
+      }
+      inspectStage3(jiraReport, codeReport, undefined, inspectOpts)
     } else {
       console.log(chalk.yellow('  Stage 2 inspect requires a real git repo. Use --stage 1 or --stage 3.'))
     }
   })
+
+// ─── parse & run ─────────────────────────────────────────────────────────────
+
+program.parse(process.argv)

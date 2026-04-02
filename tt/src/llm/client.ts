@@ -39,7 +39,7 @@ export interface TokenUsage {
 const _usage: TokenUsage = { inputTokens: 0, outputTokens: 0, calls: 0 }
 
 export function getUsage(): Readonly<TokenUsage> {
-  return { ..._usage }
+  return Object.freeze({ ..._usage })
 }
 
 export function resetUsage(): void {
@@ -67,7 +67,7 @@ export async function callLLM(opts: LLMCallOptions): Promise<string> {
   const {
     system,
     userPrompt,
-    model = 'claude-sonnet-4-20250514',
+    model = process.env.TESTMIND_MODEL ?? 'claude-sonnet-4-20250514',
     maxTokens = 4096,
     maxRetries = 2,
     temperature = 0.2,
@@ -122,21 +122,41 @@ export function extractJSON<T = unknown>(raw: string): T {
     .replace(/\s*```\s*$/m, '')
     .trim()
 
-  // Find the first { or [ and last matching bracket
+  // Find the first { or [ and its matching close bracket using depth tracking
   const firstBrace = stripped.search(/[{[]/)
   if (firstBrace === -1) {
     throw new Error(`No JSON object found in LLM response:\n${raw.slice(0, 500)}`)
   }
 
-  // Walk backwards to find matching close bracket
   const openChar = stripped[firstBrace]
   const closeChar = openChar === '{' ? '}' : ']'
-  const lastBrace = stripped.lastIndexOf(closeChar)
-  if (lastBrace === -1) {
-    throw new Error(`Unclosed JSON in LLM response:\n${raw.slice(0, 500)}`)
+
+  // Walk forward with depth counting to find the correctly matched closing bracket
+  let depth = 0
+  let inString = false
+  let escaped = false
+  let matchEnd = -1
+
+  for (let i = firstBrace; i < stripped.length; i++) {
+    const ch = stripped[i]
+
+    if (escaped) { escaped = false; continue }
+    if (ch === '\\' && inString) { escaped = true; continue }
+    if (ch === '"') { inString = !inString; continue }
+    if (inString) continue
+
+    if (ch === openChar) depth++
+    else if (ch === closeChar) {
+      depth--
+      if (depth === 0) { matchEnd = i; break }
+    }
   }
 
-  const jsonStr = stripped.slice(firstBrace, lastBrace + 1)
+  if (matchEnd === -1) {
+    throw new Error(`Unclosed JSON in LLM response (unmatched ${openChar}):\n${raw.slice(0, 500)}`)
+  }
+
+  const jsonStr = stripped.slice(firstBrace, matchEnd + 1)
 
   try {
     return JSON.parse(jsonStr) as T

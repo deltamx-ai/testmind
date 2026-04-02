@@ -1,17 +1,17 @@
 /**
  * prompt/inspect.ts
  *
- * Prompt 调试工具 — 把某个 Stage 的 prompt 组装好之后打印出来，
- * 不实际调用 LLM。
+ * Prompt debugging tool — assembles a stage's prompt and prints it
+ * without actually calling the LLM.
  *
- * 用法（加到 CLI）：
+ * Usage (via CLI):
  *   testmind inspect --stage 1 --ticket PROJ-101
  *   testmind inspect --stage 3 --ticket PROJ-210 --show-chars
  *
- * 主要用途：
- *   1. 迭代 prompt 时快速看效果（不花 token）
- *   2. 调试某个 stage 为什么输出不对（看实际传给 LLM 的内容）
- *   3. 估算 token 数（1 token ≈ 4 chars）
+ * Primary use cases:
+ *   1. Iterate on prompts quickly (no token cost)
+ *   2. Debug why a stage produces incorrect output (see what was sent to LLM)
+ *   3. Estimate token count (1 token ~ 4 chars)
  */
 
 import chalk from 'chalk'
@@ -142,7 +142,7 @@ export function inspectStage3(
   printTotals(built.system, built.user)
 }
 
-// ─── token 预算总结 ───────────────────────────────────────────────────────────
+// ─── Token budget summary ────────────────────────────────────────────────────
 
 function printTotals(system: string, user: string) {
   const sysChars = system.length

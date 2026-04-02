@@ -35,9 +35,15 @@ function git(args: string[], cwd: string): string {
     throw new Error(`git spawn error: ${result.error.message}`)
   }
   if (result.status !== 0) {
-    throw new Error(
-      `git ${args[0]} failed (exit ${result.status}): ${result.stderr?.trim()}`,
-    )
+    const stderr = result.stderr?.trim() ?? ''
+    const cmd = `git ${args.join(' ')}`
+    if (stderr.includes('not a git repository')) {
+      throw new Error(`Not a git repository. Run this command inside a git repo.\n  Command: ${cmd}`)
+    }
+    if (stderr.includes('unknown revision') || stderr.includes('bad revision')) {
+      throw new Error(`Git ref not found. Check that the branch/commit exists.\n  Command: ${cmd}\n  Error: ${stderr}`)
+    }
+    throw new Error(`git command failed (exit ${result.status}):\n  Command: ${cmd}\n  Error: ${stderr}`)
   }
   return result.stdout ?? ''
 }
@@ -103,32 +109,38 @@ function parseRawDiff(rawOutput: string): Map<string, RawFileDiff> {
 function parseHunks(diffText: string): Hunk[] {
   const hunks: Hunk[] = []
   let current: Hunk | null = null
-  let lineNum = 0
+  let newLineNum = 0
+  let oldLineNum = 0
 
   for (const line of diffText.split('\n')) {
-    const hunkHeader = line.match(/^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,(\d+))? @@/)
+    const hunkHeader = line.match(/^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/)
     if (hunkHeader) {
       if (current) hunks.push(current)
+      const oldStart = parseInt(hunkHeader[1], 10)
+      const oldCount = parseInt(hunkHeader[2] ?? '1', 10)
+      const newStart = parseInt(hunkHeader[3], 10)
+      const newCount = parseInt(hunkHeader[4] ?? '1', 10)
       current = {
-        oldStart: parseInt(hunkHeader[1], 10),
-        oldCount: 0,
-        newStart: parseInt(hunkHeader[2], 10),
-        newCount: parseInt(hunkHeader[3] ?? '1', 10),
+        oldStart,
+        oldCount,
+        newStart,
+        newCount,
         lines: [],
       }
-      lineNum = current.newStart
+      newLineNum = newStart
+      oldLineNum = oldStart
       continue
     }
 
     if (!current) continue
 
     if (line.startsWith('+') && !line.startsWith('+++')) {
-      current.lines.push({ type: '+', content: line.slice(1), lineNumber: lineNum++ })
+      current.lines.push({ type: '+', content: line.slice(1), lineNumber: newLineNum++ })
     } else if (line.startsWith('-') && !line.startsWith('---')) {
-      current.lines.push({ type: '-', content: line.slice(1), lineNumber: lineNum })
-      current.oldCount++
+      current.lines.push({ type: '-', content: line.slice(1), lineNumber: oldLineNum++ })
     } else if (line.startsWith(' ')) {
-      current.lines.push({ type: ' ', content: line.slice(1), lineNumber: lineNum++ })
+      current.lines.push({ type: ' ', content: line.slice(1), lineNumber: newLineNum++ })
+      oldLineNum++
     }
   }
   if (current) hunks.push(current)
@@ -198,6 +210,7 @@ export async function analyzeGitDiff(opts: GitAnalyzerOptions): Promise<GitDiffR
   const headSha = git(['rev-parse', headBranch], absRepo).trim()
 
   if (baseSha === headSha) {
+    console.warn(`[TestMind] Warning: base (${baseBranch}) and head (${headBranch}) resolve to the same commit (${baseSha.slice(0, 8)}). Diff will be empty.`)
     return {
       baseBranch,
       headBranch,
@@ -205,6 +218,7 @@ export async function analyzeGitDiff(opts: GitAnalyzerOptions): Promise<GitDiffR
       files: [],
       totalAdditions: 0,
       totalDeletions: 0,
+      truncated: false,
     }
   }
 
@@ -261,6 +275,7 @@ export async function analyzeGitDiff(opts: GitAnalyzerOptions): Promise<GitDiffR
   // 8. Build FileDiff objects
   let totalAdditions = 0
   let totalDeletions = 0
+  let truncated = false
 
   const files: FileDiff[] = []
 
@@ -277,7 +292,10 @@ export async function analyzeGitDiff(opts: GitAnalyzerOptions): Promise<GitDiffR
       // Truncate extremely large diffs to avoid filling LLM context
       let lineCount = 0
       for (const hunk of allHunks) {
-        if (lineCount >= maxLinesPerFile) break
+        if (lineCount >= maxLinesPerFile) {
+          truncated = true
+          break
+        }
         lineCount += hunk.lines.length
         hunks.push(hunk)
       }
@@ -302,6 +320,7 @@ export async function analyzeGitDiff(opts: GitAnalyzerOptions): Promise<GitDiffR
     files,
     totalAdditions,
     totalDeletions,
+    truncated,
   }
 }
 
@@ -322,7 +341,11 @@ export function diffToPromptText(diff: GitDiffResult, maxSourceLines = 1500): st
   lines.push(`## Git Diff Summary`)
   lines.push(`Base: ${diff.baseBranch}  →  Head: ${diff.headBranch}`)
   lines.push(`Commits: ${diff.commits.length} | Files changed: ${diff.files.length}`)
-  lines.push(`+${diff.totalAdditions} / -${diff.totalDeletions} lines\n`)
+  lines.push(`+${diff.totalAdditions} / -${diff.totalDeletions} lines`)
+  if (diff.truncated) {
+    lines.push(`⚠️ NOTE: Some file diffs were truncated due to size limits. Analysis may be incomplete.`)
+  }
+  lines.push('')
 
   if (diff.commits.length > 0) {
     lines.push('### Commit Messages')

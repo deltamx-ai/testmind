@@ -161,6 +161,7 @@ function buildReportB(
   jira: JiraReport,
   code: CodeReport,
   crossCheck: CrossCheckReport,
+  businessRules?: string[],
 ): string {
   const lines: string[] = []
 
@@ -230,6 +231,26 @@ function buildReportB(
     lines.push('These changes have no corresponding test modifications:')
     lines.push('')
     code.testCoverage.uncovered.forEach((u) => lines.push(`- ${u}`))
+    lines.push('')
+  }
+
+  // Business rules reminder
+  if (businessRules && businessRules.length > 0) {
+    lines.push(divider())
+    lines.push(header(2, '📏 Business Rules to Verify'))
+    lines.push('These project-level rules should be checked against this change:')
+    lines.push('')
+    businessRules.forEach((r) => lines.push(`- [ ] ${r}`))
+    lines.push('')
+  }
+
+  // Critical path files
+  if (code.criticalPathFiles && code.criticalPathFiles.length > 0) {
+    lines.push(divider())
+    lines.push(header(2, '🔥 Critical Path Files Modified'))
+    lines.push('These high-risk files were changed and require extra review:')
+    lines.push('')
+    code.criticalPathFiles.forEach((f) => lines.push(`- ${f}`))
     lines.push('')
   }
 
@@ -335,13 +356,14 @@ export function runStage4(
   jira: JiraReport,
   code: CodeReport,
   crossCheck: CrossCheckReport,
+  businessRules?: string[],
 ): FinalReports {
   return {
     ticketKey: jira.ticketKey,
     generatedAt: new Date().toISOString(),
     riskLevel: crossCheck.riskLevel,
     requirementReport: buildReportA(jira, crossCheck),
-    bugReport:         buildReportB(jira, code, crossCheck),
+    bugReport:         buildReportB(jira, code, crossCheck, businessRules),
     checklist:         buildReportC(jira, crossCheck),
   }
 }

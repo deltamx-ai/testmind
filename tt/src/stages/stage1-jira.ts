@@ -1,7 +1,8 @@
 /**
- * stages/stage1-jira.ts  (重写版)
+ * stages/stage1-jira.ts
  *
- * 使用 PromptBuilder 组装 prompt — 每一层清晰可见，条件分支明确。
+ * Uses PromptBuilder to assemble the prompt — each layer is clearly visible,
+ * conditional branches are explicit.
  */
 
 import type { JiraTicket, JiraReport, Requirement, AcceptanceCriteria } from '../types/index.js'

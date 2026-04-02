@@ -112,6 +112,8 @@ export interface GitDiffResult {
   files: FileDiff[]
   totalAdditions: number
   totalDeletions: number
+  /** True if any file's diff was truncated due to line limits */
+  truncated: boolean
 }
 
 // ---------- Stage 2 output: CodeReport ----------
@@ -129,6 +131,7 @@ export interface CodeReport {
   testCoverage: TestCoverageInfo
   codeSmells: string[]            // code quality issues (not requirement-related)
   affectedFiles: string[]         // source files (not tests/config)
+  criticalPathFiles: string[]     // files matching criticalPaths globs
 }
 
 // ---------- Stage 3 output: CrossCheckReport ----------

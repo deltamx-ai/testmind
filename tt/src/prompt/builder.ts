@@ -1,9 +1,9 @@
 /**
  * prompt/builder.ts
  *
- * PromptBuilder — 把 Block 和 Slot 组装成最终 prompt 字符串。
+ * PromptBuilder — assembles Blocks and Slots into final prompt strings.
  *
- * 用法：
+ * Usage:
  *   const prompt = new PromptBuilder()
  *     .system(ROLE_QA_ENGINEER)
  *     .system(TASK_JIRA_ANALYSIS)
@@ -22,36 +22,36 @@ import type {
   DebugRecord,
 } from './types.js'
 
-// ─── 辅助函数 ─────────────────────────────────────────────────────────────────
+// ─── Helpers ─────────────────────────────────────────────────────────────────
 
-/** 创建一个简单 Block */
+/** Create a simple Block */
 export function block(content: string, section?: string): PromptBlock {
   return { content, section }
 }
 
-/** 创建一个动态注入 Slot */
+/** Create a dynamic injection Slot */
 export function slot(section: string, value: string, skipIfEmpty = true): PromptSlot {
   return { section, value, skipIfEmpty }
 }
 
-/** 判断是否是 Slot（duck typing） */
+/** Check if item is a Slot (duck typing) */
 function isSlot(x: PromptBlock | PromptSlot): x is PromptSlot {
   return 'value' in x
 }
 
-// ─── 构建器 ───────────────────────────────────────────────────────────────────
+// ─── Builder ─────────────────────────────────────────────────────────────────
 
 export class PromptBuilder {
   private _system: PromptBlock[] = []
   private _user: Array<PromptBlock | PromptSlot> = []
 
-  /** 追加一个 system block */
+  /** Append a system block */
   system(b: PromptBlock | string): this {
     this._system.push(typeof b === 'string' ? block(b) : b)
     return this
   }
 
-  /** 条件追加 system block — condition 为 true 追加 ifBlock，否则追加 elseBlock */
+  /** Conditionally append system block — if condition is true append ifBlock, otherwise elseBlock */
   systemIf(condition: boolean, ifBlock: PromptBlock | string, elseBlock?: PromptBlock | string): this {
     if (condition) {
       this._system.push(typeof ifBlock === 'string' ? block(ifBlock) : ifBlock)
@@ -61,13 +61,13 @@ export class PromptBuilder {
     return this
   }
 
-  /** 追加纯文本 system block（无 section 标题） */
+  /** Append plain text system block (no section header) */
   systemConst(text: string): this {
     this._system.push(block(text))
     return this
   }
 
-  /** 追加一个 user block 或 slot */
+  /** Append a user block or slot */
   user(b: PromptBlock | PromptSlot | string): this {
     if (typeof b === 'string') {
       this._user.push(block(b))
@@ -77,17 +77,17 @@ export class PromptBuilder {
     return this
   }
 
-  /** 条件追加 user block/slot */
+  /** Conditionally append user block/slot */
   userIf(condition: boolean, item: PromptBlock | PromptSlot | string): this {
     if (condition) this.user(item)
     return this
   }
 
-  /** 构建最终 prompt */
+  /** Build the final prompt */
   build(debug = false): BuiltPrompt {
     const debugRecords: DebugRecord[] = []
 
-    // ── 拼 system ─────────────────────────────────────────────────────────────
+    // ── Build system ─────────────────────────────────────────────────────────
     const systemParts: string[] = []
     for (const b of this._system) {
       const enabled = b.enabled !== false
@@ -101,11 +101,11 @@ export class PromptBuilder {
       debugRecords.push(rec)
     }
 
-    // ── 拼 user ───────────────────────────────────────────────────────────────
+    // ── Build user ───────────────────────────────────────────────────────────
     const userParts: string[] = []
     for (const item of this._user) {
       if (isSlot(item)) {
-        const isEmpty = !item.value.trim()
+        const isEmpty = !item.value || !item.value.trim()
         const skip = isEmpty && (item.skipIfEmpty !== false)
         const rec: DebugRecord = {
           section: item.section,
@@ -129,15 +129,6 @@ export class PromptBuilder {
         }
         debugRecords.push(rec)
       }
-    }
-
-    if (debug) {
-      console.group('[PromptBuilder] Debug')
-      for (const r of debugRecords) {
-        const status = r.included ? '✓' : '✗'
-        console.log(`${status} ${r.section} (${r.charCount ?? 0} chars)${r.reason ? ` — ${r.reason}` : ''}`)
-      }
-      console.groupEnd()
     }
 
     return {

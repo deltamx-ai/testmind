@@ -71,7 +71,7 @@ export async function runPipeline(
   notify(2, 'Code Analysis', 'start')
   let codeReport: CodeReport
   try {
-    codeReport = await runStage2(diff, input.config?.techStack)
+    codeReport = await runStage2(diff, input.config?.techStack, input.config?.criticalPaths)
     notify(2, 'Code Analysis', 'done', `${codeReport.implementedFeatures.length} features, ${codeReport.testCoverage.uncovered.length} gaps`)
   } catch (err) {
     notify(2, 'Code Analysis', 'error', String(err))
@@ -93,8 +93,14 @@ export async function runPipeline(
 
   // ─── Stage 4: Report generation ───────────────────────────────────────────
   notify(4, 'Report Generation', 'start')
-  const finalReports = runStage4(jiraReport, codeReport, crossCheckReport)
-  notify(4, 'Report Generation', 'done', '3 reports generated')
+  let finalReports: FinalReports
+  try {
+    finalReports = runStage4(jiraReport, codeReport, crossCheckReport, input.config?.businessRules)
+    notify(4, 'Report Generation', 'done', '3 reports generated')
+  } catch (err) {
+    notify(4, 'Report Generation', 'error', String(err))
+    throw err
+  }
 
   return {
     jiraReport,
